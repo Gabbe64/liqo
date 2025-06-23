@@ -15,6 +15,7 @@
 package forge
 
 import (
+	"context"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,7 +26,10 @@ import (
 
 	offloadingv1beta1 "github.com/liqotech/liqo/apis/offloading/v1beta1"
 	"github.com/liqotech/liqo/pkg/utils/getters"
+	vkutils "github.com/liqotech/liqo/pkg/utils/virtualkubelet"
 )
+// The name of the cluster which the vk is reflecting to
+var clusterName = vkutils.GetClusterNameFromNamespace()
 
 // EndpointSliceManagedBy -> The manager associated with the reflected EndpointSlices.
 const EndpointSliceManagedBy = "endpointslice.reflection.liqo.io"
@@ -110,6 +114,17 @@ func RemoteEndpointSliceEndpoints(locals []discoveryv1.Endpoint, localNodeClient
 	translator EndpointTranslator) []discoveryv1.Endpoint {
 	var remotes []discoveryv1.Endpoint
 
+	// Retrieve the ForeignClusterConnections to check for shortcuts.
+	fcclist, err := vkutils.ListForeignClusterConnections("default", context.TODO())
+		if err != nil {
+			klog.Errorf("Unable to list ForeignClusterConnections: %s", err.Error())
+		}
+
+		shortcutcidrs, err := vkutils.GetAllCidrsByClusterName(fcclist, clusterName)
+		if err != nil {
+			klog.Errorf("Unable to get ForeignClusterConnections CIDRs: %s", err.Error())
+		}
+
 	for i := range locals {
 		if !EndpointToBeReflected(&locals[i], localNodeClient) {
 			// Skip the endpoints referring to the target node (as natively present).
@@ -118,6 +133,53 @@ func RemoteEndpointSliceEndpoints(locals []discoveryv1.Endpoint, localNodeClient
 
 		local := locals[i].DeepCopy()
 		conditions := discoveryv1.EndpointConditions{Ready: local.Conditions.Ready}
+
+		shortcutFound := false
+
+		// for each address in the local endpoint, we check if it belongs to a CIDR which have a working shortcut.
+		for _, address := range local.Addresses {
+			for _, shortcutCIDR := range shortcutcidrs {
+
+				klog.Infof("DEBUG: Checking if address %s belongs to shortcut CIDR %s", address, shortcutCIDR.ShortcutPodCIDR)
+
+				result, err := vkutils.IpBelongsToCIDR(address, shortcutCIDR.PodCIDR)
+				if err != nil {
+					klog.Errorf("unable to check if address %s belongs to CIDR %s:%s", address, shortcutCIDR, err.Error())
+					continue
+				}
+
+				if result {
+					// If the address is from a shortcut I need to get the remapped one + flag it by setting the hostname to "is-shortcut"
+					remappedaddr, err := vkutils.RemapAddressUsingCidr(address, shortcutCIDR.ShortcutPodCIDR)
+					if err != nil {
+						klog.Errorf("unable to remap address %s using CIDR %s: %s", address, shortcutCIDR, err.Error())
+						continue
+					}
+
+					klog.Infof("I FOUND AN ADDRESS (%s) FROM A SHORTCUT! Remapped: %s", address, remappedaddr[0])
+
+					remote := discoveryv1.Endpoint{
+						Addresses:  remappedaddr,
+						Conditions: conditions,
+						Hostname:   pointer.String("is-shortcut"),
+						TargetRef:  RemoteEndpointTargetRef(local.TargetRef),
+						NodeName:   pointer.String(string(LocalCluster)),
+						Zone:       local.Zone,
+						Hints:      local.Hints,
+					}
+
+					remotes = append(remotes, remote)
+                    shortcutFound = true
+					break 	// Only one shortcut per address is expected
+				}
+			}
+		}
+		if shortcutFound {
+			// If we found a shortcut, we skip the rest of the addresses.
+			shortcutFound = false
+			continue
+		}
+
 
 		remote := discoveryv1.Endpoint{
 			Addresses:  translator(local.Addresses),
@@ -128,7 +190,6 @@ func RemoteEndpointSliceEndpoints(locals []discoveryv1.Endpoint, localNodeClient
 			Zone:       local.Zone,
 			Hints:      local.Hints,
 		}
-
 		remotes = append(remotes, remote)
 	}
 

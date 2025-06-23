@@ -18,6 +18,7 @@ import (
 	"context"
 
 	discoveryv1 "k8s.io/api/discovery/v1"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	liqov1beta1 "github.com/liqotech/liqo/apis/core/v1beta1"
@@ -28,9 +29,17 @@ import (
 func MapEndpointsWithConfiguration(ctx context.Context, cl client.Client,
 	clusterID liqov1beta1.ClusterID, endpoints []discoveryv1.Endpoint) error {
 	for i := range endpoints {
+
+		if endpoints[i].Hostname != nil  {
+			if *endpoints[i].Hostname == "is-shortcut" {
+				// This is a shortcut endpoint, we don't translate it.
+				klog.V(4).Infof("Skipping translation for shortcut endpoint %s", endpoints[i].TargetRef.Name)
+				continue	
+			}
+		}
+
 		for j := range endpoints[i].Addresses {
 			addr := endpoints[i].Addresses[j]
-
 			rAddr, err := ipamips.MapAddress(ctx, cl, clusterID, addr)
 			if err != nil {
 				return err
