@@ -9,7 +9,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v6 v6.4.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v6 v6.2.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/subscription/armsubscription v1.2.0
-	github.com/Gabbe64/foreign_cluster_connector v0.0.0-20250610205657-c9566a98cd2b
+	github.com/Gabbe64/foreign_cluster_connector v0.0.0-20250623191829-28fdabc4f85f
 	github.com/aws/aws-sdk-go v1.54.6
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/google/nftables v0.2.0

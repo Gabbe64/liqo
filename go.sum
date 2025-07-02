@@ -93,8 +93,8 @@ github.com/BurntSushi/toml v1.4.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/DATA-DOG/go-sqlmock v1.5.2 h1:OcvFkGmslmlZibjAjaHm3L//6LiuBgolP7OputlJIzU=
 github.com/DATA-DOG/go-sqlmock v1.5.2/go.mod h1:88MAG/4G7SMwSE3CeA0ZKzrT5CiOU3OJ+JlNzwDqpNU=
-github.com/Gabbe64/foreign_cluster_connector v0.0.0-20250610205657-c9566a98cd2b h1:E7spSq1Dal/AFctLHsIWtlnxLs3XmRt1HTQuLyzzsis=
-github.com/Gabbe64/foreign_cluster_connector v0.0.0-20250610205657-c9566a98cd2b/go.mod h1:y3ZqOxeeVwxjd7rH0WvO/+jaRBm3dmVN8FsMTafZITY=
+github.com/Gabbe64/foreign_cluster_connector v0.0.0-20250623191829-28fdabc4f85f h1:++xrnLE/QR9PmMa/0K7qoHVpwcIosR+pLMNzdTbXNKs=
+github.com/Gabbe64/foreign_cluster_connector v0.0.0-20250623191829-28fdabc4f85f/go.mod h1:y3ZqOxeeVwxjd7rH0WvO/+jaRBm3dmVN8FsMTafZITY=
 github.com/MakeNowJust/heredoc v1.0.0 h1:cXCdzVdstXyiTqTvfqk9SDHpKNjxuom+DOlyEeQ4pzQ=
 github.com/MakeNowJust/heredoc v1.0.0/go.mod h1:mG5amYoWBHf8vpLOuehzbGGw0EHxpZZ6lCpQ4fNJ8LE=
 github.com/MarvinJWendt/testza v0.1.0/go.mod h1:7AxNvlfeHP7Z/hDQ5JtE3OKYT3XFUeLCDE2DQninSqs=

@@ -27,9 +27,12 @@ import (
 
 // MapEndpointsWithConfiguration maps the endpoints of the shadowendpointslice.
 func MapEndpointsWithConfiguration(ctx context.Context, cl client.Client,
-	clusterID liqov1beta1.ClusterID, endpoints []discoveryv1.Endpoint) error {
+	clusterID liqov1beta1.ClusterID, 
+	endpoints []discoveryv1.Endpoint,
+	shortcutAddresses []string) error {
 	for i := range endpoints {
 
+		/*
 		if endpoints[i].Hostname != nil  {
 			if *endpoints[i].Hostname == "is-shortcut" {
 				// This is a shortcut endpoint, we don't translate it.
@@ -37,9 +40,17 @@ func MapEndpointsWithConfiguration(ctx context.Context, cl client.Client,
 				continue	
 			}
 		}
-
+		*/
 		for j := range endpoints[i].Addresses {
 			addr := endpoints[i].Addresses[j]
+
+			// If the address is from a shortcut do not remap it as it's already usable.
+			if contains(shortcutAddresses, addr) {
+				klog.V(4).Infof("Skipping translation for shortcut address %s in endpoint %s",
+					addr, endpoints[i].TargetRef.Name)
+				continue
+			}
+
 			rAddr, err := ipamips.MapAddress(ctx, cl, clusterID, addr)
 			if err != nil {
 				return err
@@ -50,4 +61,14 @@ func MapEndpointsWithConfiguration(ctx context.Context, cl client.Client,
 	}
 
 	return nil
+}
+
+
+func contains (slice []string, str string) bool {
+	for _, s := range slice {
+		if s == str {
+			return true
+		}
+	}
+	return false
 }

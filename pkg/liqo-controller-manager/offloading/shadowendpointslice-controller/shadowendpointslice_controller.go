@@ -17,6 +17,7 @@ package shadowendpointslicectrl
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -44,6 +45,7 @@ import (
 	foreigncluster "github.com/liqotech/liqo/pkg/utils/foreigncluster"
 	"github.com/liqotech/liqo/pkg/utils/resource"
 	"github.com/liqotech/liqo/pkg/virtualKubelet/forge"
+	//fcc "github.com/Gabbe64/foreign_cluster_connector/api/v1beta1"
 )
 
 const ctrlFieldManager = "shadow-endpointslice-controller"
@@ -97,12 +99,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// Check foreign API server status
 	apiServerReady := foreigncluster.IsAPIServerReadyOrDisabled(fc)
 
+
+	// Stores the shortcut addresses, if any.
+	shortcutAddressesLabel, hasShortcut := shadowEps.Labels["liqo.io/shortcut-addresses"]
+	var shortcutAddresses []string
+	if hasShortcut && shortcutAddressesLabel != "" {
+		shortcutAddresses = strings.Split(shortcutAddressesLabel, ",")
+	}
+
 	// Get the endpoints from the shadowendpointslice and remap them if necessary.
 	// If the networking module is disabled, we do not need to remap the endpoints.
 	remappedEndpoints := shadowEps.Spec.Template.Endpoints
 	if foreigncluster.IsNetworkingModuleEnabled(fc) {
 		// remap the endpoints if the network configuration of the remote cluster overlaps with the local one
-		if err := MapEndpointsWithConfiguration(ctx, r.Client, clusterID, remappedEndpoints); err != nil {
+		if err := MapEndpointsWithConfiguration(ctx, r.Client, clusterID, remappedEndpoints, shortcutAddresses); err != nil {
 			klog.Errorf("an error occurred while remapping endpoints for shadowendpointslice %q: %v", nsName, err)
 			return ctrl.Result{}, err
 		}
@@ -215,6 +225,63 @@ func (r *Reconciler) getForeignClusterEventHandler(ctx context.Context) handler.
 	}
 }
 
+/*
+
+func (r *Reconciler) getForeignClusterConnectionEventHandler(ctx context.Context) handler.EventHandler {
+	return &handler.Funcs{
+		UpdateFunc: func(_ context.Context, ue event.TypedUpdateEvent[client.Object], trli workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			fccObj, ok := ue.ObjectNew.(*fcc.ForeignClusterConnection)
+			if !ok {
+				klog.Errorf("object %v is not a ForeignClusterConnection", ue.ObjectNew)
+				return
+			}
+
+			// Check if the connection state transitioned to "connected"
+			if fccObj.Status.IsConnected {
+				return
+			}
+
+			clusterA := fccObj.Spec.ForeignClusterA
+			clusterB := fccObj.Spec.ForeignClusterB
+			if clusterA == "" || clusterB == "" {
+				klog.Errorf("one or both cluster names are not set on ForeignClusterConnection %v", fccObj)
+				return
+			}
+
+			// List all shadowendpointslices with clusterA as origin
+			var shadowListA, shadowlistB offloadingv1beta1.ShadowEndpointSliceList
+			if err := r.List(ctx, &shadowListA, client.MatchingLabels{forge.LiqoOriginClusterIDKey: string(clusterA)}); err != nil {
+				klog.Errorf("Unable to list shadowendpointslices")
+				return
+			}
+
+			// Same for clusterB
+			if err := r.List(ctx, &shadowlistB, client.MatchingLabels{forge.LiqoOriginClusterIDKey: string(clusterB)}); err != nil {
+				klog.Errorf("Unable to list shadowendpointslices")
+				return
+			}
+
+			// Merges the two lists
+			shadowListA.Items = append(shadowListA.Items, shadowlistB.Items...)
+
+			for i := range shadowListA.Items {
+				shadow := &shadowListA.Items[i]
+				trli.Add(reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      shadow.Name,
+						Namespace: shadow.Namespace,
+					},
+				})
+			}
+		},
+
+		DeleteFunc : func(_ context.Context, de event.TypedDeleteEvent[client.Object], trli workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		},
+	}
+}
+
+*/
+
 func (r *Reconciler) endpointsShouldBeUpdated(newObj, oldObj client.Object) bool {
 	oldForeignCluster, ok := oldObj.(*liqov1beta1.ForeignCluster)
 	if !ok {
@@ -248,11 +315,41 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, wor
 		GenericFunc: func(_ event.GenericEvent) bool { return false },
 	}
 
+	/*
+	foreignclusterconnectionPredicates := predicate.Funcs{
+		DeleteFunc:  func(_ event.DeleteEvent) bool { return false },
+		CreateFunc:  func(_ event.CreateEvent) bool { return false },
+		UpdateFunc:  func(e event.UpdateEvent) bool { return false },
+		GenericFunc: func(_ event.GenericEvent) bool { return false },
+	}
+		*/
+
 	return ctrl.NewControllerManagedBy(mgr).Named(consts.CtrlShadowEndpointSlice).
 		For(&offloadingv1beta1.ShadowEndpointSlice{}).
 		Owns(&discoveryv1.EndpointSlice{}).
 		Watches(&liqov1beta1.ForeignCluster{},
 			r.getForeignClusterEventHandler(ctx), builder.WithPredicates(fcPredicates)).
+/*
+		Watches(&fcc.ForeignClusterConnection{},
+			r.getForeignClusterConnectionEventHandler(ctx), builder.WithPredicates(foreignclusterconnectionPredicates)).
+*/			
 		WithOptions(controller.Options{MaxConcurrentReconciles: workers}).
 		Complete(r)
 }
+
+/*
+
+// HasForeignClusterConnectionCRD checks if the ForeignClusterConnection CRD is installed in the cluster.
+func HasForeignClusterConnectionCRD(ctx context.Context, c client.Client) (bool, error) {
+    var crd fcc.ForeignClusterConnection
+    err := c.Get(ctx, types.NamespacedName{Name: "foreignclusterconnections.networking.liqo.io"}, &crd)
+    if err != nil {
+        if errors.IsNotFound(err) {
+            return false, nil
+        }
+        return false, err
+    }
+    return true, nil
+}
+
+*/

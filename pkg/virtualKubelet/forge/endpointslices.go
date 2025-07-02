@@ -16,6 +16,8 @@ package forge
 
 import (
 	"context"
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,6 +30,7 @@ import (
 	"github.com/liqotech/liqo/pkg/utils/getters"
 	vkutils "github.com/liqotech/liqo/pkg/utils/virtualkubelet"
 )
+
 // The name of the cluster which the vk is reflecting to
 var clusterName = vkutils.GetClusterNameFromNamespace()
 
@@ -87,12 +90,19 @@ func RemoteShadowEndpointSlice(local *discoveryv1.EndpointSlice, remote *offload
 		remote = &offloadingv1beta1.ShadowEndpointSlice{ObjectMeta: metav1.ObjectMeta{Name: local.GetName(), Namespace: targetNamespace}}
 	}
 
+	endpoints, shortcutAddresses := RemoteEndpointSliceEndpoints(local.Endpoints, localNodeClient, translator)
+
+	objMeta := RemoteEndpointSliceObjectMeta(&local.ObjectMeta, &remote.ObjectMeta, forgingOpts)
+	if len(shortcutAddresses) > 0 {
+		objMeta.Labels["liqo.io/shortcut-addresses"] = strings.Join(shortcutAddresses, ",")
+	}
+
 	return &offloadingv1beta1.ShadowEndpointSlice{
-		ObjectMeta: RemoteEndpointSliceObjectMeta(&local.ObjectMeta, &remote.ObjectMeta, forgingOpts),
+		ObjectMeta: objMeta,
 		Spec: offloadingv1beta1.ShadowEndpointSliceSpec{
 			Template: offloadingv1beta1.EndpointSliceTemplate{
 				AddressType: local.AddressType,
-				Endpoints:   RemoteEndpointSliceEndpoints(local.Endpoints, localNodeClient, translator),
+				Endpoints:   endpoints,
 				Ports:       RemoteEndpointSlicePorts(local.Ports),
 			},
 		},
@@ -111,8 +121,11 @@ func RemoteEndpointSliceObjectMeta(local, remote *metav1.ObjectMeta, forgingOpts
 
 // RemoteEndpointSliceEndpoints forges the endpoints of the reflected endpointslice, given the local ones.
 func RemoteEndpointSliceEndpoints(locals []discoveryv1.Endpoint, localNodeClient corev1listers.NodeLister,
-	translator EndpointTranslator) []discoveryv1.Endpoint {
+	translator EndpointTranslator) ([]discoveryv1.Endpoint, []string) {
 	var remotes []discoveryv1.Endpoint
+	
+	// Used to collect the addresses of the shortcuts, so they can be used as a label in the endpointslice. 
+	var shortcutAddresses []string	
 
 	// Retrieve the ForeignClusterConnections to check for shortcuts.
 	fcclist, err := vkutils.ListForeignClusterConnections("default", context.TODO())
@@ -140,8 +153,6 @@ func RemoteEndpointSliceEndpoints(locals []discoveryv1.Endpoint, localNodeClient
 		for _, address := range local.Addresses {
 			for _, shortcutCIDR := range shortcutcidrs {
 
-				klog.Infof("DEBUG: Checking if address %s belongs to shortcut CIDR %s", address, shortcutCIDR.ShortcutPodCIDR)
-
 				result, err := vkutils.IpBelongsToCIDR(address, shortcutCIDR.PodCIDR)
 				if err != nil {
 					klog.Errorf("unable to check if address %s belongs to CIDR %s:%s", address, shortcutCIDR, err.Error())
@@ -156,12 +167,15 @@ func RemoteEndpointSliceEndpoints(locals []discoveryv1.Endpoint, localNodeClient
 						continue
 					}
 
-					klog.Infof("I FOUND AN ADDRESS (%s) FROM A SHORTCUT! Remapped: %s", address, remappedaddr[0])
+					klog.Infof("Address (%s) is from a shortcut! Remapped to: %s", address, remappedaddr[0])
+
+					// These are used to track the addresses of the shortcuts so they can be used as a label in the endpointslice.
+					shortcutAddresses = append(shortcutAddresses, remappedaddr[0])
 
 					remote := discoveryv1.Endpoint{
 						Addresses:  remappedaddr,
 						Conditions: conditions,
-						Hostname:   pointer.String("is-shortcut"),
+						Hostname:   local.Hostname,
 						TargetRef:  RemoteEndpointTargetRef(local.TargetRef),
 						NodeName:   pointer.String(string(LocalCluster)),
 						Zone:       local.Zone,
@@ -193,7 +207,7 @@ func RemoteEndpointSliceEndpoints(locals []discoveryv1.Endpoint, localNodeClient
 		remotes = append(remotes, remote)
 	}
 
-	return remotes
+	return remotes, shortcutAddresses
 }
 
 // RemoteEndpointTargetRef forges the ObjectReference of the reflected endpoint, given the local one.

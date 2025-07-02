@@ -117,11 +117,13 @@ var _ = Describe("EndpointSlices Forging", func() {
 		})
 	})
 
+	// Add a test case in which the shortcut addresses are collected!
 	Describe("the RemoteEndpointSliceEndpoints function", func() {
 		var (
 			endpoint discoveryv1.Endpoint
 			input    []discoveryv1.Endpoint
 			output   []discoveryv1.Endpoint
+			shortcutAddresses []string
 		)
 
 		BeforeEach(func() {
@@ -139,7 +141,7 @@ var _ = Describe("EndpointSlices Forging", func() {
 		})
 
 		JustBeforeEach(func() {
-			output = forge.RemoteEndpointSliceEndpoints(input, &FakeNodeLister{}, Translator)
+			output, shortcutAddresses = forge.RemoteEndpointSliceEndpoints(input, &FakeNodeLister{}, Translator)
 		})
 
 		When("translating a single endpoint", func() {
@@ -167,6 +169,9 @@ var _ = Describe("EndpointSlices Forging", func() {
 				Expect(output[0].Hints.ForZones).To(HaveLen(1))
 				Expect(output[0].Hints.ForZones[0].Name).To(Equal("zone"))
 			})
+			It("shortcutaddress fake usage, just to make the code compile", func() {
+            	Expect(shortcutAddresses).ToNot(BeNil())
+        	})
 		})
 
 		When("translating an endpoint referring to the remote cluster", func() {
