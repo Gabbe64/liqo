@@ -107,6 +107,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		shortcutAddresses = strings.Split(shortcutAddressesLabel, ",")
 	}
 
+	// Prepare labels for the new EndpointSlice
+	labels := labels.Merge(shadowEps.Labels, labels.Set{
+		consts.ManagedByLabelKey: consts.ManagedByShadowEndpointSliceValue,
+	})
+
+	// Remove the shortcut label if there are no shortcut addresses
+	if len(shortcutAddresses) == 0 {
+		delete(labels, "liqo.io/shortcut-addresses")
+	}
+
 	// Get the endpoints from the shadowendpointslice and remap them if necessary.
 	// If the networking module is disabled, we do not need to remap the endpoints.
 	remappedEndpoints := shadowEps.Spec.Template.Endpoints
@@ -123,8 +133,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      shadowEps.Name,
 			Namespace: shadowEps.Namespace,
-			Labels: labels.Merge(shadowEps.Labels, labels.Set{
-				consts.ManagedByLabelKey: consts.ManagedByShadowEndpointSliceValue}),
+			Labels:    labels,
 			Annotations: shadowEps.Annotations,
 		},
 		AddressType: shadowEps.Spec.Template.AddressType,
@@ -172,6 +181,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	default:
 		klog.V(4).Infof("endpointslice %q found running, will update it", klog.KObj(&existingEps))
+
+		if len(shortcutAddresses) == 0 {
+			// If there are no more shortcut addresses, we remove the label from the existing endpointslice.
+			delete(existingEps.Labels, "liqo.io/shortcut-addresses")
+		}
 
 		// Create Apply object for existing endpointslice
 		epsApply := EndpointSliceApply(&newEps)
@@ -336,20 +350,3 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, wor
 		WithOptions(controller.Options{MaxConcurrentReconciles: workers}).
 		Complete(r)
 }
-
-/*
-
-// HasForeignClusterConnectionCRD checks if the ForeignClusterConnection CRD is installed in the cluster.
-func HasForeignClusterConnectionCRD(ctx context.Context, c client.Client) (bool, error) {
-    var crd fcc.ForeignClusterConnection
-    err := c.Get(ctx, types.NamespacedName{Name: "foreignclusterconnections.networking.liqo.io"}, &crd)
-    if err != nil {
-        if errors.IsNotFound(err) {
-            return false, nil
-        }
-        return false, err
-    }
-    return true, nil
-}
-
-*/
