@@ -277,7 +277,7 @@ func (ner *NamespacedEndpointSliceReflector) Handle(ctx context.Context, name st
 		ner.Event(local, corev1.EventTypeWarning, forge.EventFailedReflection, forge.EventFailedReflectionMsg(terr))
 		return terr
 	}
-
+	
 	if marshaledData != nil {
 		target.Annotations[consts.DirectConnectionDataAnnotationKey] = string(marshaledData)
 	}

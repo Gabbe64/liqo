@@ -124,6 +124,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	if foreigncluster.IsNetworkingModuleEnabled(fc) {
+
+		rcindex := remoteConnectionsData.BuildIndex()
+
 		// remap the endpoints if the network configuration of the remote cluster overlaps with the local one
 		if err := MapEndpointsWithConfiguration(ctx, r.Client, clusterID, remappedEndpoints, rcindex); err != nil {
 			return ctrl.Result{}, fmt.Errorf("an error occurred while remapping endpoints for shadowendpointslice %q: %w", nsName, err)
