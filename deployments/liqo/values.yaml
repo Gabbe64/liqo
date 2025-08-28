@@ -425,6 +425,9 @@ controllerManager:
     # This feature can be useful in case of remote node failure to guarantee better service continuity and to have the expected pods workload on the remote cluster.
     # However, enabling this feature could produce zombies in the worker node, in case the node returns Ready again without a restart.
     enableNodeFailureController: false
+    # -- Prevents the usage of direct connections by provider clusters. 
+    # When enabled, the provider cluster will not route traffic directed to another provider through their direct connection. 
+    denyDirectConnections: false
   metrics:
     # -- Service used to expose metrics.
     service:
