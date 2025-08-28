@@ -186,6 +186,33 @@ func remapWithin(ip net.IP, address string, spec, status []networkingv1beta1.CID
 	return "", false, nil
 }
 
+// ForceMapAddressWithConfiguration forces the mapping of the provided address using the podCIDR of the remote cluster, retrieved using its clusterID.
+//
+// In case of failure returns the address unchanged.
+func ForceMapAddressWithConfiguration(ctx context.Context, cl client.Client,
+	clusterID liqov1beta1.ClusterID, address string) (string, error) {
+	addr := net.ParseIP(address)
+
+	cfg, err := getters.GetConfigurationByClusterID(ctx, cl, clusterID, corev1.NamespaceAll)
+	if err != nil {
+		return addr.String(), err
+	}
+
+	if cfg == nil || cfg.Status.Remote == nil {
+		return addr.String(), fmt.Errorf("configuration is nil or incomplete")
+	}
+
+	remapped, found, err := remapWithin(addr, address, cfg.Spec.Remote.CIDR.Pod, cfg.Status.Remote.CIDR.Pod)
+	if err != nil {
+		return addr.String(), fmt.Errorf("remapping the address within the remote pod CIDRs: %w", err)
+	}
+	if !found {
+		return addr.String(), fmt.Errorf("no remote pod CIDR contains address %q", addr.String())
+	}
+
+	return remapped, nil
+}
+
 // RemapMask take an IP address and a network mask and remap the address to the network.
 // This means that the host part of the address is preserved, while the network part is replaced with the one in the mask.
 //
