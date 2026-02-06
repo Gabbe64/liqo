@@ -15,6 +15,10 @@ By default, Liqo routes cross-provider traffic through the Consumer cluster. Tra
 
 This feature enables direct east-west traffic between provider clusters. When enabled, Liqo configures the network data plane to allow offloaded pods to communicate directly (provider A ↔ provider B), bypassing the Consumer.
 
+```{admonition} Note
+The figure shows two providers for simplicity but this feature supports multiple providers.
+```
+
 ## Prerequisites
 
 - Peering: The Consumer cluster must be correctly peered with at least two provider clusters, as shown in the figure above.
