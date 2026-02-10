@@ -33,6 +33,7 @@ import (
 	externalnetworkroute "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/route"
 	serveroperator "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/server-operator"
 	wggatewaycontrollers "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/wireguard"
+	openvpngatewaycontrollers "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/openvpn"
 	internalclientcontroller "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/internal-network/client-controller"
 	internalconfigurationcontroller "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/internal-network/configuration-controller"
 	gwmasqbypass "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/internal-network/gw-masq-bypass"
@@ -56,6 +57,7 @@ type NetworkingOption struct {
 
 	GatewayServerResources         []string
 	GatewayClientResources         []string
+	// Right now openvpn uses the same roles as wireguard
 	WgGatewayServerClusterRoleName string
 	WgGatewayClientClusterRoleName string
 	NetworkWorkers                 int
@@ -143,6 +145,22 @@ func SetupNetworkingModule(ctx context.Context, mgr manager.Manager, uncachedCli
 		opts.WgGatewayClientClusterRoleName)
 	if err := wgClientRec.SetupWithManager(mgr); err != nil {
 		klog.Errorf("Unable to start the wgGatewayClientReconciler: %v", err)
+		return err
+	}
+
+	openvpnServerReconciler := openvpngatewaycontrollers.NewOvpnGatewayServerReconciler(mgr.GetClient(), mgr.GetScheme(),
+		mgr.GetEventRecorderFor("openvpn-gateway-server-controller"),
+		opts.WgGatewayServerClusterRoleName)
+	if err := openvpnServerReconciler.SetupWithManager(mgr); err != nil {
+		klog.Errorf("Unable to start the openvpnGatewayServerReconciler: %v", err)
+		return err
+	}
+
+	openvpnClientReconciler := openvpngatewaycontrollers.NewOvpnGatewayClientReconciler(mgr.GetClient(), mgr.GetScheme(),
+		mgr.GetEventRecorderFor("openvpn-gateway-client-controller"),
+		opts.WgGatewayClientClusterRoleName)
+	if err := openvpnClientReconciler.SetupWithManager(mgr); err != nil {
+		klog.Errorf("Unable to start the openvpnGatewayClientReconciler: %v", err)
 		return err
 	}
 
