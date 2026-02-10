@@ -4,25 +4,25 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.3
-  name: wggatewayservertemplates.networking.liqo.io
+  name: ovpngatewayservertemplates.networking.liqo.io
 spec:
   group: networking.liqo.io
   names:
     categories:
     - liqo
-    kind: WgGatewayServerTemplate
-    listKind: WgGatewayServerTemplateList
-    plural: wggatewayservertemplates
+    kind: OvpnGatewayServerTemplate
+    listKind: OvpnGatewayServerTemplateList
+    plural: ovpngatewayservertemplates
     shortNames:
-    - wggst
-    - wgst
-    singular: wggatewayservertemplate
+    - ovpnst
+    - ost
+    singular: ovpngatewayservertemplate
   scope: Namespaced
   versions:
   - name: v1beta1
     schema:
       openAPIV3Schema:
-        description: WgGatewayServerTemplate contains a template for a wireguard gateway
+        description: OvpnGatewayServerTemplate contains a template for a openvpn gateway
           server.
         properties:
           apiVersion:
@@ -43,8 +43,8 @@ spec:
           metadata:
             type: object
           spec:
-            description: WgGatewayServerTemplateSpec defines the desired state of
-              WgGatewayServerTemplate.
+            description: OvpnGatewayServerTemplateSpec defines the desired state of
+              OvpnGatewayServerTemplate.
             properties:
               objectKind:
                 description: ObjectKind specifies the kind of the object.
