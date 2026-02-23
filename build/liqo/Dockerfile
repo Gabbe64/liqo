@@ -9,6 +9,11 @@ RUN if [ "$COMPONENT" = "geneve" ] || [ "$COMPONENT" = "wireguard" ] || [ "$COMP
     apk add --no-cache iproute2 nftables bash wireguard-tools tcpdump conntrack-tools curl iputils; \
     fi
 
+RUN if [ "$COMPONENT" = "openvpn" ]; then \
+    set -x; \
+    apk add --no-cache openvpn; \
+    fi
+
 RUN if [ "$COMPONENT" = "wireguard" ]; then \
     set -e; \
     apk add --no-cache git curl; \
