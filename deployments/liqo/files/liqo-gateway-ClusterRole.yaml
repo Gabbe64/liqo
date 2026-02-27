@@ -81,3 +81,12 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - networking.liqo.io
+  resources:
+  - ovpngatewayclients
+  - ovpngatewayservers
+  verbs:
+  - get
+  - list
+  - watch

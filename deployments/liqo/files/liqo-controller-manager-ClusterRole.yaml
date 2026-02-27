@@ -190,6 +190,10 @@ rules:
   - wggatewayclienttemplates
   - wggatewayservers
   - wggatewayservertemplates
+  - ovpngatewayclients
+  - ovpngatewayclienttemplates
+  - ovpngatewayservers
+  - ovpngatewayservertemplates
   verbs:
   - create
   - delete
@@ -239,6 +243,8 @@ rules:
   - internalfabrics/status
   - wggatewayclients/status
   - wggatewayservers/status
+  - ovpngatewayclients/status
+  - ovpngatewayservers/status
   verbs:
   - get
   - patch
@@ -343,3 +349,14 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - networking.liqo.io
+  resources:
+  - ovpngatewayservers
+  - ovpngatewayclients
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete

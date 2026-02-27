@@ -44,10 +44,14 @@ networking:
   serverResources:
     - apiVersion: networking.liqo.io/v1beta1
       resource: wggatewayservers
+    - apiVersion: networking.liqo.io/v1beta1
+      resource: ovpngatewayservers
   # -- Set the list of resources that implement the GatewayClient
   clientResources:
     - apiVersion: networking.liqo.io/v1beta1
       resource: wggatewayclients
+    - apiVersion: networking.liqo.io/v1beta1
+      resource: ovpngatewayclients
   # -- Set the options for the default gateway (server/client) templates.
   # The default templates use a WireGuard implementation to connect the gateway of the clusters.
   # These options are used to configure only the default templates and should not be considered
@@ -92,6 +96,12 @@ networking:
           # -- Image repository for the geneve container.
           name: "ghcr.io/liqotech/gateway/geneve"
           # -- Custom version for the geneve image. If not specified, the global tag is used.
+          version: ""
+      openvpn:
+        image:
+          # -- Image repository for the openvpn container.
+          name: "ghcr.io/liqotech/gateway/openvpn"
+          # -- Custom version for the openvpn image. If not specified, the global tag is used.
           version: ""
   fabric:
     pod:
