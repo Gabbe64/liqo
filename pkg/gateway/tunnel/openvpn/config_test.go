@@ -29,7 +29,10 @@ func TestBuildConfig(t *testing.T) {
 	opts.EndpointAddress = "10.0.0.1"
 	opts.IfconfigLocalIP = "169.254.18.2"
 	opts.IfconfigRemoteIP = "169.254.18.1"
-	opts.TLSClient = true
+
+	if err := NormalizeOptions(opts); err != nil {
+		t.Fatalf("NormalizeOptions failed: %v", err)
+	}
 
 	cfg := BuildConfig(opts)
 
@@ -42,11 +45,9 @@ func TestBuildConfig(t *testing.T) {
 		"key /etc/openvpn/keys/client.key\n",
 		"tls-auth /etc/openvpn/keys/ta.key 1\n",
 		"tls-client\n",
-		"cipher AES-256-CBC\n",
 		"auth SHA256\n",
 		"proto udp\n",
 		"keepalive 10 120\n",
-		"mtu 1340\n",
 		"remote 10.0.0.1\n",
 		"port 51840\n",
 	}
@@ -55,6 +56,101 @@ func TestBuildConfig(t *testing.T) {
 		if !strings.Contains(cfg, needle) {
 			t.Fatalf("expected config to contain %q, got: %s", needle, cfg)
 		}
+	}
+
+	forbidden := []string{
+		"tls-server\n",
+		"dh /etc/openvpn/keys/dh.pem\n",
+	}
+
+	for _, needle := range forbidden {
+		if strings.Contains(cfg, needle) {
+			t.Fatalf("expected config not to contain %q, got: %s", needle, cfg)
+		}
+	}
+}
+
+func TestBuildConfigServer(t *testing.T) {
+	opts := NewOptions(gateway.NewOptions())
+	opts.GwOptions.Mode = gateway.ModeServer
+	opts.ListenPort = 1194
+	opts.IfconfigLocalIP = "169.254.18.1"
+	opts.IfconfigRemoteIP = "169.254.18.2"
+
+	if err := NormalizeOptions(opts); err != nil {
+		t.Fatalf("NormalizeOptions failed: %v", err)
+	}
+
+	cfg := BuildConfig(opts)
+
+	checks := []string{
+		"tls-server\n",
+		"dh /etc/openvpn/keys/dh.pem\n",
+		"cert /etc/openvpn/keys/server.crt\n",
+		"key /etc/openvpn/keys/server.key\n",
+		"tls-auth /etc/openvpn/keys/ta.key 0\n",
+		"port 1194\n",
+	}
+
+	for _, needle := range checks {
+		if !strings.Contains(cfg, needle) {
+			t.Fatalf("expected config to contain %q, got: %s", needle, cfg)
+		}
+	}
+
+	if strings.Contains(cfg, "remote ") {
+		t.Fatalf("expected server config not to contain remote directive, got: %s", cfg)
+	}
+}
+
+func TestBuildConfigExtraOptions(t *testing.T) {
+	opts := NewOptions(gateway.NewOptions())
+	opts.GwOptions.Mode = gateway.ModeClient
+	opts.EndpointAddress = "10.0.0.1"
+	opts.IfconfigLocalIP = "169.254.18.2"
+	opts.IfconfigRemoteIP = "169.254.18.1"
+	opts.ExtraOpts = "management 127.0.0.1 5555\nverb 3"
+
+	if err := NormalizeOptions(opts); err != nil {
+		t.Fatalf("NormalizeOptions failed: %v", err)
+	}
+
+	cfg := BuildConfig(opts)
+
+	if !strings.Contains(cfg, "management 127.0.0.1 5555\n") {
+		t.Fatalf("expected config to contain management extra option, got: %s", cfg)
+	}
+	if !strings.HasSuffix(cfg, "verb 3\n") {
+		t.Fatalf("expected config to end with extra options and newline, got: %q", cfg)
+	}
+}
+
+func TestNormalizeOptionsRejectsBlockedExtraOption(t *testing.T) {
+	testCases := []struct {
+		name      string
+		extraOpts string
+	}{
+		{name: "remote directive", extraOpts: "remote 1.2.3.4"},
+		{name: "port directive", extraOpts: "port 1234"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := NewOptions(gateway.NewOptions())
+			opts.GwOptions.Mode = gateway.ModeClient
+			opts.EndpointAddress = "10.0.0.1"
+			opts.IfconfigLocalIP = "169.254.18.2"
+			opts.IfconfigRemoteIP = "169.254.18.1"
+			opts.ExtraOpts = tc.extraOpts
+
+			err := NormalizeOptions(opts)
+			if err == nil {
+				t.Fatalf("expected NormalizeOptions to fail for extra option %q", tc.extraOpts)
+			}
+			if !strings.Contains(err.Error(), "cannot be overridden") {
+				t.Fatalf("expected blocked-option validation error, got: %v", err)
+			}
+		})
 	}
 }
 
