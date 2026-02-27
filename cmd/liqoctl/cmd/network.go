@@ -122,6 +122,8 @@ func newNetworkConnectCommand(ctx context.Context, options *network.Options) *co
 	}
 
 	// Server flags
+	cmd.Flags().Var(options.TunnelingProtocol, "tunneling-protocol",
+		"Tunneling protocol to use for the gateway (wireguard or openvpn)")
 	cmd.Flags().StringVar(&options.ServerGatewayType, "gw-server-type", forge.DefaultGwServerType,
 		"Type of Gateway Server. Leave empty to use default Liqo implementation of WireGuard")
 	cmd.Flags().StringVar(&options.ServerTemplateName, "gw-server-template-name", forge.DefaultGwServerTemplateName,
@@ -159,8 +161,8 @@ func newNetworkConnectCommand(ctx context.Context, options *network.Options) *co
 	cmd.Flags().IntVar(&options.MTU, "mtu", forge.DefaultMTU,
 		fmt.Sprintf("MTU of the Gateway server and client. Default: %d", forge.DefaultMTU))
 	cmd.Flags().BoolVar(&options.DisableSharingKeys, "disable-sharing-keys", false, "Disable the sharing of public keys between the two clusters")
-
 	runtime.Must(cmd.RegisterFlagCompletionFunc("gw-server-service-type", completion.Enumeration(options.ServerServiceType.Allowed)))
+	runtime.Must(cmd.RegisterFlagCompletionFunc("tunneling-protocol", completion.Enumeration(options.TunnelingProtocol.Allowed)))
 
 	return cmd
 }

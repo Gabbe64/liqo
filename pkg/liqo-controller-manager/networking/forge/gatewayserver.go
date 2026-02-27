@@ -53,6 +53,7 @@ type GwServerOptions struct {
 	Port              int32
 	NodePort          *int32
 	LoadBalancerIP    *string
+	SecretRefName     string
 }
 
 // GatewayServer forges a GatewayServer.
@@ -117,6 +118,13 @@ func MutateGatewayServer(gwServer *networkingv1beta1.GatewayServer, o *GwServerO
 		Namespace:  o.TemplateNamespace,
 		Kind:       kind,
 		APIVersion: gvr.GroupVersion().String(),
+	}
+
+	if o.SecretRefName != "" {
+		gwServer.Spec.SecretRef = corev1.LocalObjectReference{Name: o.SecretRefName}
+	} else {
+		// If no secret reference is provided, ensure the field is empty to avoid confusion.
+		gwServer.Spec.SecretRef = corev1.LocalObjectReference{}
 	}
 
 	return nil

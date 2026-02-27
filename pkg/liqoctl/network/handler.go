@@ -39,6 +39,8 @@ type Options struct {
 	Wait           bool
 	SkipValidation bool
 
+	TunnelingProtocol *argsutils.StringEnum
+
 	ServerGatewayType           string
 	ServerTemplateName          string
 	ServerTemplateNamespace     string
@@ -65,6 +67,10 @@ type Options struct {
 func NewOptions(localFactory *factory.Factory) *Options {
 	return &Options{
 		LocalFactory: localFactory,
+		TunnelingProtocol: argsutils.NewEnum(
+			[]string{TunnelingProtocolWireguard, TunnelingProtocolOpenVPN},
+			TunnelingProtocolWireguard,
+		),
 		ServerServiceType: argsutils.NewEnum(
 			[]string{string(corev1.ServiceTypeLoadBalancer), string(corev1.ServiceTypeNodePort), string(corev1.ServiceTypeClusterIP)},
 			string(forge.DefaultGwServerServiceType)),
@@ -108,6 +114,10 @@ func (o *Options) RunConnect(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, o.Timeout)
 	defer cancel()
 
+	if err := o.applyTunnelingProtocolDefaults(); err != nil {
+		return err
+	}
+
 	if o.ServerTemplateNamespace == "" {
 		o.ServerTemplateNamespace = o.RemoteFactory.LiqoNamespace
 	}
@@ -126,6 +136,12 @@ func (o *Options) RunConnect(ctx context.Context) error {
 	cluster2, err := NewCluster(ctx, o.RemoteFactory, o.LocalFactory, true)
 	if err != nil {
 		return err
+	}
+
+	if o.usingOpenVPN() {
+		if err := o.ensureOpenVPNSecrets(ctx, cluster1, cluster2); err != nil {
+			return err
+		}
 	}
 	// Exchange network configurations between the clusters
 	if err := o.initNetworkConfigs(ctx, cluster1, cluster2); err != nil {
@@ -209,39 +225,47 @@ func (o *Options) RunConnect(ctx context.Context) error {
 		return err
 	}
 
-	// If sharing keys is disabled, return immediately
-	if o.DisableSharingKeys {
+	// Set owner references on OpenVPN secrets so they are deleted with the gateways
+	if o.usingOpenVPN() {
+		if err := o.setOpenVPNSecretOwnerReferences(ctx, cluster1, cluster2, gwServer, gwClient); err != nil {
+			return err
+		}
+	}
+
+	if !o.DisableSharingKeys && !o.usingOpenVPN() {
+		// Wait for gateway server to set secret reference (containing the server public key) in the status
+		err = cluster2.waiter.ForGatewayServerSecretRef(ctx, gwServer)
+		if err != nil {
+			return err
+		}
+		keyServer, err := getters.ExtractKeyFromSecretRef(ctx, cluster2.local.CRClient, gwServer.Status.SecretRef)
+		if err != nil {
+			return err
+		}
+
+		// Create PublicKey of gateway server on cluster 1
+		if err := cluster1.EnsurePublicKey(ctx, cluster2.localClusterID, keyServer, gwClient); err != nil {
+			return err
+		}
+
+		// Wait for gateway client to set secret reference (containing the client public key) in the status
+		err = cluster1.waiter.ForGatewayClientSecretRef(ctx, gwClient)
+		if err != nil {
+			return err
+		}
+		keyClient, err := getters.ExtractKeyFromSecretRef(ctx, cluster1.local.CRClient, gwClient.Status.SecretRef)
+		if err != nil {
+			return err
+		}
+
+		// Create PublicKey of gateway client on cluster 2
+		if err := cluster2.EnsurePublicKey(ctx, cluster1.localClusterID, keyClient, gwServer); err != nil {
+			return err
+		}
+	}
+
+	if o.DisableSharingKeys && !o.usingOpenVPN() {
 		return nil
-	}
-
-	// Wait for gateway server to set secret reference (containing the server public key) in the status
-	err = cluster2.waiter.ForGatewayServerSecretRef(ctx, gwServer)
-	if err != nil {
-		return err
-	}
-	keyServer, err := getters.ExtractKeyFromSecretRef(ctx, cluster2.local.CRClient, gwServer.Status.SecretRef)
-	if err != nil {
-		return err
-	}
-
-	// Create PublicKey of gateway server on cluster 1
-	if err := cluster1.EnsurePublicKey(ctx, cluster2.localClusterID, keyServer, gwClient); err != nil {
-		return err
-	}
-
-	// Wait for gateway client to set secret reference (containing the client public key) in the status
-	err = cluster1.waiter.ForGatewayClientSecretRef(ctx, gwClient)
-	if err != nil {
-		return err
-	}
-	keyClient, err := getters.ExtractKeyFromSecretRef(ctx, cluster1.local.CRClient, gwClient.Status.SecretRef)
-	if err != nil {
-		return err
-	}
-
-	// Create PublicKey of gateway client on cluster 2
-	if err := cluster2.EnsurePublicKey(ctx, cluster1.localClusterID, keyClient, gwServer); err != nil {
-		return err
 	}
 
 	if o.Wait {
@@ -345,7 +369,7 @@ func (o *Options) initNetworkConfigs(ctx context.Context, cluster1, cluster2 *Cl
 }
 
 func (o *Options) newGatewayServerForgeOptions(kubeClient kubernetes.Interface, remoteClusterID liqov1beta1.ClusterID) *forge.GwServerOptions {
-	return &forge.GwServerOptions{
+	opts := &forge.GwServerOptions{
 		KubeClient:        kubeClient,
 		RemoteClusterID:   remoteClusterID,
 		GatewayType:       o.ServerGatewayType,
@@ -357,11 +381,17 @@ func (o *Options) newGatewayServerForgeOptions(kubeClient kubernetes.Interface, 
 		NodePort:          ptr.To(o.ServerServiceNodePort),
 		LoadBalancerIP:    ptr.To(o.ServerServiceLoadBalancerIP),
 	}
+
+	if o.usingOpenVPN() {
+		opts.SecretRefName = DefaultOpenVPNServerSecretName
+	}
+
+	return opts
 }
 
 func (o *Options) newGatewayClientForgeOptions(kubeClient kubernetes.Interface, remoteClusterID liqov1beta1.ClusterID,
 	serverEndpoint *networkingv1beta1.EndpointStatus) *forge.GwClientOptions {
-	return &forge.GwClientOptions{
+	opts := &forge.GwClientOptions{
 		KubeClient:        kubeClient,
 		RemoteClusterID:   remoteClusterID,
 		GatewayType:       o.ClientGatewayType,
@@ -372,4 +402,10 @@ func (o *Options) newGatewayClientForgeOptions(kubeClient kubernetes.Interface, 
 		Port:              serverEndpoint.Port,
 		Protocol:          string(*serverEndpoint.Protocol),
 	}
+
+	if o.usingOpenVPN() {
+		opts.SecretRefName = DefaultOpenVPNClientSecretName
+	}
+
+	return opts
 }

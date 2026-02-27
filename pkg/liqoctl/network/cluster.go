@@ -556,6 +556,12 @@ func (c *Cluster) DeleteGatewayServer(ctx context.Context, remoteClusterID liqov
 		return nil
 	}
 
+	// Check if this is an OpenVPN gateway and delete the secret if needed
+	if isOpenVPNGatewayServer(gwServer) {
+		// Ignore errors when deleting secrets, as they may not exist
+		_ = c.deleteOpenVPNServerSecret(ctx, gwServer)
+	}
+
 	// Delete GatewayServer.
 	err = c.local.CRClient.Delete(ctx, gwServer)
 	switch {
@@ -585,6 +591,12 @@ func (c *Cluster) DeleteGatewayClient(ctx context.Context, remoteClusterID liqov
 		return nil
 	}
 
+	// Check if this is an OpenVPN gateway client and delete the secret if needed
+	if isOpenVPNGatewayClient(gwClient) {
+		// Ignore errors when deleting secrets, as they may not exist
+		_ = c.deleteOpenVPNClientSecret(ctx, gwClient)
+	}
+
 	// Delete GatewayClient.
 	err = c.local.CRClient.Delete(ctx, gwClient)
 	switch {
@@ -597,6 +609,56 @@ func (c *Cluster) DeleteGatewayClient(ctx context.Context, remoteClusterID liqov
 		s.Success("Gateway client correctly deleted")
 	}
 
+	return nil
+}
+
+// isOpenVPNGatewayServer checks if a GatewayServer is using OpenVPN.
+func isOpenVPNGatewayServer(gwServer *networkingv1beta1.GatewayServer) bool {
+	if gwServer == nil || gwServer.Spec.ServerTemplateRef.Kind == "" {
+		return false
+	}
+	// Check if the template kind indicates OpenVPN
+	return gwServer.Spec.ServerTemplateRef.Kind == networkingv1beta1.OvpnGatewayServerTemplateKind
+}
+
+// isOpenVPNGatewayClient checks if a GatewayClient is using OpenVPN.
+func isOpenVPNGatewayClient(gwClient *networkingv1beta1.GatewayClient) bool {
+	if gwClient == nil || gwClient.Spec.ClientTemplateRef.Kind == "" {
+		return false
+	}
+	// Check if the template kind indicates OpenVPN
+	return gwClient.Spec.ClientTemplateRef.Kind == networkingv1beta1.OvpnGatewayClientTemplateKind
+}
+
+// deleteOpenVPNServerSecret deletes the OpenVPN server secret referenced by a GatewayServer.
+func (c *Cluster) deleteOpenVPNServerSecret(ctx context.Context, gwServer *networkingv1beta1.GatewayServer) error {
+	if gwServer == nil {
+		return nil
+	}
+
+	// Try to delete using the secret name from the spec if provided
+	if gwServer.Spec.SecretRef.Name != "" {
+		err := c.local.KubeClient.CoreV1().Secrets(gwServer.Namespace).Delete(ctx, gwServer.Spec.SecretRef.Name, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete openvpn server secret: %w", err)
+		}
+	}
+	return nil
+}
+
+// deleteOpenVPNClientSecret deletes the OpenVPN client secret referenced by a GatewayClient.
+func (c *Cluster) deleteOpenVPNClientSecret(ctx context.Context, gwClient *networkingv1beta1.GatewayClient) error {
+	if gwClient == nil {
+		return nil
+	}
+
+	// Try to delete using the secret name from the spec if provided
+	if gwClient.Spec.SecretRef.Name != "" {
+		err := c.local.KubeClient.CoreV1().Secrets(gwClient.Namespace).Delete(ctx, gwClient.Spec.SecretRef.Name, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete openvpn client secret: %w", err)
+		}
+	}
 	return nil
 }
 

@@ -48,6 +48,7 @@ type GwClientOptions struct {
 	Addresses         []string
 	Port              int32
 	Protocol          string
+	SecretRefName     string
 }
 
 // GatewayClient forges a GatewayClient.
@@ -107,6 +108,12 @@ func MutateGatewayClient(gwClient *networkingv1beta1.GatewayClient, o *GwClientO
 		Namespace:  o.TemplateNamespace,
 		Kind:       kind,
 		APIVersion: gvr.GroupVersion().String(),
+	}
+
+	if o.SecretRefName != "" {
+		gwClient.Spec.SecretRef = corev1.LocalObjectReference{Name: o.SecretRefName}
+	} else {
+		gwClient.Spec.SecretRef = corev1.LocalObjectReference{}
 	}
 
 	return nil

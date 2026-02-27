@@ -92,6 +92,8 @@ func newPeerCommand(ctx context.Context, f *factory.Factory) *cobra.Command {
 
 	// Networking flags
 	cmd.Flags().BoolVar(&options.NetworkingDisabled, "networking-disabled", false, "Disable networking between the two clusters")
+	cmd.Flags().Var(options.TunnelingProtocol, "tunneling-protocol",
+		"Tunneling protocol to use for the gateway (wireguard or openvpn)")
 	cmd.Flags().Var(options.ServerServiceLocation, "gw-server-service-location",
 		fmt.Sprintf("Location of the service to expose the Gateway Server (%q or %q). Default: %q",
 			liqov1beta1.ConsumerRole, liqov1beta1.ProviderRole, nwforge.DefaultGwServerLocation))
@@ -115,9 +117,9 @@ func newPeerCommand(ctx context.Context, f *factory.Factory) *cobra.Command {
 			"not directly reachable (e.g. the server is behind a NAT)")
 	cmd.Flags().IntVar(&options.MTU, "mtu", nwforge.DefaultMTU,
 		fmt.Sprintf("MTU of the Gateway server and client. Default: %d", nwforge.DefaultMTU))
-
 	runtime.Must(cmd.RegisterFlagCompletionFunc("gw-server-service-location", completion.Enumeration(options.ServerServiceLocation.Allowed)))
 	runtime.Must(cmd.RegisterFlagCompletionFunc("gw-server-service-type", completion.Enumeration(options.ServerServiceType.Allowed)))
+	runtime.Must(cmd.RegisterFlagCompletionFunc("tunneling-protocol", completion.Enumeration(options.TunnelingProtocol.Allowed)))
 
 	// Authentication flags
 	cmd.Flags().BoolVar(&options.CreateResourceSlice, "create-resource-slice", true, "Create a ResourceSlice for the peering")

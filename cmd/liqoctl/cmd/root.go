@@ -34,6 +34,7 @@ import (
 	"github.com/liqotech/liqo/pkg/liqoctl/rest/identity"
 	"github.com/liqotech/liqo/pkg/liqoctl/rest/kubeconfig"
 	"github.com/liqotech/liqo/pkg/liqoctl/rest/nonce"
+	"github.com/liqotech/liqo/pkg/liqoctl/rest/openvpn"
 	peeringuser "github.com/liqotech/liqo/pkg/liqoctl/rest/peering-user"
 	"github.com/liqotech/liqo/pkg/liqoctl/rest/publickey"
 	"github.com/liqotech/liqo/pkg/liqoctl/rest/resourceslice"
@@ -51,6 +52,7 @@ var liqoResources = []rest.APIProvider{
 	gatewayserver.GatewayServer,
 	gatewayclient.GatewayClient,
 	publickey.PublicKey,
+	openvpn.OpenVPN,
 	tenant.Tenant,
 	nonce.Nonce,
 	peeringuser.PeeringUser,

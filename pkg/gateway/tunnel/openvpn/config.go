@@ -93,11 +93,26 @@ func BuildConfig(opts *Options) string {
 	if opts.GwOptions != nil && opts.GwOptions.Mode == gateway.ModeClient {
 		writeKV("remote", opts.EndpointAddress)
 		writeInt("port", opts.EndpointPort)
-		return b.String()
+		return appendExtraOpts(b.String(), opts.ExtraOpts)
 	}
 	writeInt("port", opts.ListenPort)
 
-	return b.String()
+	return appendExtraOpts(b.String(), opts.ExtraOpts)
+}
+
+func appendExtraOpts(config string, extraOpts string) string {
+	trimmed := strings.TrimSpace(extraOpts)
+	if trimmed == "" {
+		return config
+	}
+	if !strings.HasSuffix(config, "\n") {
+		config += "\n"
+	}
+	config += trimmed
+	if !strings.HasSuffix(config, "\n") {
+		config += "\n"
+	}
+	return config
 }
 
 // WriteConfigFile writes the OpenVPN configuration to a file and returns its path.

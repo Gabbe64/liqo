@@ -41,6 +41,7 @@ type Options struct {
 
 	// Networking options
 	NetworkingDisabled          bool
+	TunnelingProtocol           *argsutils.StringEnum
 	ServerServiceLocation       *argsutils.StringEnum
 	ServerServiceType           *argsutils.StringEnum
 	ServerServicePort           int32
@@ -68,6 +69,10 @@ type Options struct {
 func NewOptions(localFactory *factory.Factory) *Options {
 	return &Options{
 		LocalFactory: localFactory,
+		TunnelingProtocol: argsutils.NewEnum(
+			[]string{network.TunnelingProtocolWireguard, network.TunnelingProtocolOpenVPN},
+			network.TunnelingProtocolWireguard,
+		),
 		ServerServiceLocation: argsutils.NewEnum(
 			[]string{string(liqov1beta1.ConsumerRole), string(liqov1beta1.ProviderRole)},
 			string(nwforge.DefaultGwServerLocation)),
@@ -128,9 +133,10 @@ func ensureNetworking(ctx context.Context, o *Options) error {
 		LocalFactory:  localFactory,
 		RemoteFactory: remoteFactory,
 
-		Timeout:        o.Timeout,
-		Wait:           true,
-		SkipValidation: o.SkipValidation,
+		Timeout:           o.Timeout,
+		Wait:              true,
+		SkipValidation:    o.SkipValidation,
+		TunnelingProtocol: o.TunnelingProtocol,
 
 		ServerGatewayType:           nwforge.DefaultGwServerType,
 		ServerTemplateName:          nwforge.DefaultGwServerTemplateName,
