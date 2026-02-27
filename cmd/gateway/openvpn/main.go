@@ -62,6 +62,8 @@ func main() {
 		RunE: run,
 	}
 
+	cmd.FParseErrWhitelist.UnknownFlags = true
+
 	flagsutils.InitKlogFlags(cmd.Flags())
 	restcfg.InitFlags(cmd.Flags())
 
@@ -146,7 +148,6 @@ func run(cmd *cobra.Command, _ []string) error {
 			klog.V(4).Infof("unable to kill openvpn process: %v", err)
 		}
 	}()
-
 	runnable, err := concurrent.NewRunnableGuest(options.GwOptions.ContainerName)
 	if err != nil {
 		return fmt.Errorf("unable to create runnable guest: %w", err)

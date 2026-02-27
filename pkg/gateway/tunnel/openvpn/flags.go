@@ -64,7 +64,7 @@ const (
 	FlagNameDHFile FlagName = "dh"
 	// FlagNameTLSAuthKeyFile is the tls-auth key path.
 	FlagNameTLSAuthKeyFile FlagName = "tls-auth"
-	// FlagNameTLSAuthDirection is the tls-auth direction.
+	// FlagNameTLSAuthDirection is the tls-auth direction: 1 for client and 0 for server.
 	FlagNameTLSAuthDirection FlagName = "tls-auth-direction"
 	// FlagNameTLSClient enables tls-client.
 	FlagNameTLSClient FlagName = "tls-client"
@@ -86,37 +86,26 @@ const (
 	FlagNameManagementAddress FlagName = "management-address"
 	// FlagNameManagementPort is the OpenVPN management port.
 	FlagNameManagementPort FlagName = "management-port"
+	// FlagNameExtraOpts contains additional OpenVPN options to append to the config file.
+	FlagNameExtraOpts FlagName = "extra-opts"
 )
 
 // ClientRequiredFlags contains the list of the mandatory flags for the client mode.
 var ClientRequiredFlags = []FlagName{
-	FlagNameDevice,
-	FlagNameDeviceType,
 	FlagNameIfconfigLocalIP,
 	FlagNameIfconfigRemoteIP,
-	FlagNameCAFile,
-	FlagNameCertFile,
-	FlagNameKeyFile,
-	FlagNameTLSAuthKeyFile,
+	FlagNameEndpointAddress,
 }
 
 // ServerRequiredFlags contains the list of the mandatory flags for the server mode.
 var ServerRequiredFlags = []FlagName{
-	FlagNameDevice,
-	FlagNameDeviceType,
 	FlagNameIfconfigLocalIP,
 	FlagNameIfconfigRemoteIP,
-	FlagNameCAFile,
-	FlagNameCertFile,
-	FlagNameKeyFile,
-	FlagNameTLSAuthKeyFile,
 }
 
 // InitFlags initializes the flags for the OpenVPN tunnel.
 func InitFlags(flagset *pflag.FlagSet, opts *Options) {
 	flagset.IntVar(&opts.MTU, FlagNameMTU.String(), forge.DefaultMTU, "MTU for the interface")
-	flagset.StringVar(&opts.Device, FlagNameDevice.String(), opts.Device, "OpenVPN device name")
-	flagset.StringVar(&opts.DeviceType, FlagNameDeviceType.String(), opts.DeviceType, "OpenVPN device type")
 	flagset.StringVar(&opts.IfconfigLocalIP, FlagNameIfconfigLocalIP.String(), opts.IfconfigLocalIP, "OpenVPN ifconfig local IP")
 	flagset.StringVar(&opts.IfconfigRemoteIP, FlagNameIfconfigRemoteIP.String(), opts.IfconfigRemoteIP, "OpenVPN ifconfig remote IP")
 	flagset.IntVar(&opts.ListenPort, FlagNameListenPort.String(), forge.DefaultGwServerPort, "Listen port (server only)")
@@ -126,15 +115,6 @@ func InitFlags(flagset *pflag.FlagSet, opts *Options) {
 	flagset.IntVar(&opts.Port, FlagNamePort.String(), 0, "Port (alias for listen/endpoint port)")
 	flagset.StringVar(&opts.EndpointAddress, FlagNameRemote.String(), opts.EndpointAddress, "Remote endpoint address (client only)")
 	flagset.StringVar(&opts.ConfigDir, FlagNameConfigDir.String(), DefaultConfigDir, "Directory where the OpenVPN configuration is stored")
-	flagset.StringVar(&opts.CAFile, FlagNameCAFile.String(), opts.CAFile, "CA certificate path")
-	flagset.StringVar(&opts.CertFile, FlagNameCertFile.String(), opts.CertFile, "Certificate path")
-	flagset.StringVar(&opts.KeyFile, FlagNameKeyFile.String(), opts.KeyFile, "Key path")
-	flagset.StringVar(&opts.DHFile, FlagNameDHFile.String(), opts.DHFile, "DH parameters file path")
-	flagset.StringVar(&opts.TLSAuthKeyFile, FlagNameTLSAuthKeyFile.String(), opts.TLSAuthKeyFile, "tls-auth key path")
-	flagset.IntVar(&opts.TLSAuthDirection, FlagNameTLSAuthDirection.String(), opts.TLSAuthDirection, "tls-auth direction")
-	flagset.BoolVar(&opts.TLSClient, FlagNameTLSClient.String(), opts.TLSClient, "Enable tls-client")
-	flagset.BoolVar(&opts.TLSServer, FlagNameTLSServer.String(), opts.TLSServer, "Enable tls-server")
-	flagset.StringVar(&opts.Cipher, FlagNameCipher.String(), opts.Cipher, "Cipher")
 	flagset.StringVar(&opts.Auth, FlagNameAuth.String(), opts.Auth, "Auth digest")
 	flagset.StringVar(&opts.Proto, FlagNameProto.String(), opts.Proto, "Protocol (udp/tcp)")
 	flagset.IntVar(&opts.KeepalivePing, FlagNameKeepalivePing.String(), opts.KeepalivePing, "Keepalive ping interval")
@@ -142,6 +122,7 @@ func InitFlags(flagset *pflag.FlagSet, opts *Options) {
 	flagset.IntVar(&opts.MaxClients, FlagNameMaxClients.String(), opts.MaxClients, "Maximum number of clients")
 	flagset.StringVar(&opts.ManagementAddress, FlagNameManagementAddress.String(), opts.ManagementAddress, "OpenVPN management bind address")
 	flagset.IntVar(&opts.ManagementPort, FlagNameManagementPort.String(), opts.ManagementPort, "OpenVPN management port")
+	flagset.StringVar(&opts.ExtraOpts, FlagNameExtraOpts.String(), opts.ExtraOpts, "Additional OpenVPN options appended to the config file (newline-separated)")
 }
 
 // MarkFlagsRequired marks the flags as required.

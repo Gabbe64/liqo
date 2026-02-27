@@ -16,6 +16,7 @@ package openvpn
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/liqotech/liqo/pkg/gateway"
 	"github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/forge"
@@ -24,6 +25,10 @@ import (
 const (
 	// DefaultListenPort is the default port where the OpenVPN server listens.
 	DefaultListenPort = 1194
+	// DefaultDevice is the fixed OpenVPN device name.
+	DefaultDevice = "liqo-tunnel"
+	// DefaultDeviceType is the fixed OpenVPN device type.
+	DefaultDeviceType = "tun"
 	// DefaultConfigDir is the default directory where OpenVPN configuration is stored.
 	DefaultConfigDir = "/etc/openvpn"
 	// DefaultKeysDir is the default directory where OpenVPN keys/certs are stored.
@@ -68,6 +73,7 @@ type Options struct {
 	MaxClients        int
 	ManagementAddress string
 	ManagementPort    int
+	ExtraOpts         string
 }
 
 // NewOptions returns a new Options struct.
@@ -75,8 +81,8 @@ func NewOptions(options *gateway.Options) *Options {
 	return &Options{
 		GwOptions:         options,
 		MTU:               DefaultMTU,
-		Device:            "liqo-tunnel",
-		DeviceType:        "tun",
+		Device:            DefaultDevice,
+		DeviceType:        DefaultDeviceType,
 		ListenPort:        DefaultListenPort,
 		EndpointPort:      forge.DefaultGwServerPort,
 		ConfigDir:         DefaultConfigDir,
@@ -86,9 +92,9 @@ func NewOptions(options *gateway.Options) *Options {
 		DHFile:            "",
 		TLSAuthKeyFile:    DefaultKeysDir + "/ta.key",
 		TLSAuthDirection:  1,
-		TLSClient:         false,
+		TLSClient:         true,
 		TLSServer:         false,
-		Cipher:            "AES-256-CBC",
+		Cipher:            "",
 		Auth:              "SHA256",
 		Proto:             "udp",
 		KeepalivePing:     10,
@@ -104,18 +110,27 @@ func NormalizeOptions(opts *Options) error {
 	if opts == nil {
 		return nil
 	}
+	if opts.GwOptions == nil {
+		return fmt.Errorf("gateway options are required")
+	}
 
-	// Default paths for client mode, note that they are set at Options creation.
+	defaultCA := DefaultKeysDir + "/ca.crt"
+	defaultTLSAuth := DefaultKeysDir + "/ta.key"
 	defaultClientCert := DefaultKeysDir + "/client.crt"
 	defaultClientKey := DefaultKeysDir + "/client.key"
-
-	// Default paths for server mode.
 	defaultServerCert := DefaultKeysDir + "/server.crt"
 	defaultServerKey := DefaultKeysDir + "/server.key"
 	defaultServerDH := DefaultKeysDir + "/dh.pem"
 
+	// Fixed OpenVPN settings for Liqo.
+	opts.Device = DefaultDevice
+	opts.DeviceType = DefaultDeviceType
+	opts.CAFile = defaultCA
+	opts.TLSAuthKeyFile = defaultTLSAuth
+	opts.Cipher = ""
+
 	if opts.Port != 0 {
-		if opts.GwOptions != nil && opts.GwOptions.Mode == gateway.ModeServer {
+		if opts.GwOptions.Mode == gateway.ModeServer {
 			opts.ListenPort = opts.Port
 		} else {
 			opts.EndpointPort = opts.Port
@@ -123,27 +138,73 @@ func NormalizeOptions(opts *Options) error {
 	}
 
 	switch opts.GwOptions.Mode {
-    case gateway.ModeServer:
-        if opts.CertFile == "" || opts.CertFile == defaultClientCert {
-            opts.CertFile = defaultServerCert
-        }
-        if opts.KeyFile == "" || opts.KeyFile == defaultClientKey {
-            opts.KeyFile = defaultServerKey
-        }
-        if opts.DHFile == "" {
-			opts.DHFile = defaultServerDH
-		}
+	case gateway.ModeServer:
+		opts.CertFile = defaultServerCert
+		opts.KeyFile = defaultServerKey
+		opts.DHFile = defaultServerDH
+		opts.TLSAuthDirection = 0
+		opts.TLSClient = false
+		opts.TLSServer = true
 	case gateway.ModeClient:
-		// Default client values are set at Options creation.
-        if opts.EndpointAddress == "" {
-            return fmt.Errorf("endpoint address is required (use --endpoint-address or --remote)")
-        }
-        if opts.EndpointPort == 0 {
-            return fmt.Errorf("endpoint port is required (use --endpoint-port or --port)")
-        }
+		opts.CertFile = defaultClientCert
+		opts.KeyFile = defaultClientKey
+		opts.DHFile = ""
+		opts.TLSAuthDirection = 1
+		opts.TLSClient = true
+		opts.TLSServer = false
+		if opts.EndpointAddress == "" {
+			return fmt.Errorf("endpoint address is required (use --endpoint-address or --remote)")
+		}
+		if opts.EndpointPort == 0 {
+			return fmt.Errorf("endpoint port is required (use --endpoint-port or --port)")
+		}
 	default:
 		return fmt.Errorf("invalid gateway mode %q", opts.GwOptions.Mode)
-    }
+	}
+
+	if err := validateExtraOpts(opts.ExtraOpts); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateExtraOpts(extraOpts string) error {
+	blockedDirectives := map[string]struct{}{
+		"auth":         {},
+		"ca":           {},
+		"cert":         {},
+		"cipher":       {},
+		"data-ciphers": {},
+		"dev":          {},
+		"dev-type":     {},
+		"dh":           {},
+		"ifconfig":     {},
+		"key":          {},
+		"keepalive":    {},
+		"max-clients":  {},
+		"port":         {},
+		"proto":        {},
+		"remote":       {},
+		"tls-auth":     {},
+		"tls-client":   {},
+		"tls-server":   {},
+	}
+
+	for _, line := range strings.Split(extraOpts, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
+			continue
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) == 0 {
+			continue
+		}
+		directive := strings.ToLower(fields[0])
+		if _, exists := blockedDirectives[directive]; exists {
+			return fmt.Errorf("extra option %q is already supported or fixed by Liqo and cannot be overridden", directive)
+		}
+	}
 
 	return nil
 }
