@@ -1,96 +1,146 @@
-<!-- markdownlint-disable first-line-h1 -->
-<p align="center">
-  <a href="https://github.com/liqotech/liqo/actions/workflows/codeql.yml"><img src="https://github.com/liqotech/liqo/actions/workflows/codeql.yml/badge.svg" alt="Integration Pipeline Status"></a>
-  <a href="https://goreportcard.com/report/github.com/liqotech/liqo"><img src=https://goreportcard.com/badge/github.com/liqotech/liqo></a>
-  <a href="https://docs.liqo.io/en/stable" alt="Liqo's Documentation"><img src="https://readthedocs.org/projects/liqo/badge/"></a>
-  <a href="https://liqo-io.slack.com/join/shared_invite/zt-h20212gg-g24YvN6MKiD9bacFeqZttQ"><img src=https://img.shields.io/badge/slack-liqo.io-blueviolet?logo=slack></a>
-  <a href="https://twitter.com/liqo_io"><img src=https://img.shields.io/twitter/follow/liqo_io?style=flat&color=ff69b4&logo=twitter></a>
+# Liqo OpenVPN Feature Branch
 
-  <br />
-  <a href="https://docs.liqo.io/en/stable/installation/?provider=GKE"><img src=https://img.shields.io/badge/Google%20GKE-supported-green></a>
-  <a href="https://docs.liqo.io/en/stable/installation/?provider=AKS" ><img src=https://img.shields.io/badge/Azure%20AKS-supported-green></a>
-  <a href="https://docs.liqo.io/en/stable/installation/?provider=EKS"><img src=https://img.shields.io/badge/Amazon%20EKS-supported-green></a>
-  <a href="https://docs.liqo.io/en/stable/installation/?provider=OpenShift%20Container%20Platform%20(OCP)"><img src=https://img.shields.io/badge/Openshift-supported-green></a>
-  <br />
-  <br />
-  <br />
+This branch provides a reproducible setup to test Liqo peering with an OpenVPN-based gateway.
 
-  <a href="https://github.com/liqotech/liqo">
-    <img alt="Liqo Logo" src="docs/_static/images/common/liqo-logo-blue.svg" height="80">
-  </a>
-  <br />
+It is designed for branch developers/testers who need:
+- a deterministic Liqo installation path on existing `kind` clusters,
+- a clear OpenVPN peering command flow (with `liqoctl`),
+- and a small validation workflow (offloading + test workload).
 
-  <h3 align="center">Enable dynamic and seamless Kubernetes multi-cluster topologies</h3>
-  <br />
-</p>
 
-<p align="center">
-    <a href="https://docs.liqo.io/"><strong>Explore the docs »</strong></a>
-    <br />
-    <br />
-    <a href="https://www.youtube.com/channel/UCYbWJMfwy3P6xT4JI_K84xw">View Videos</a>
-    ·
-    <a href="https://github.com/liqotech/liqo/issues/new?assignees=&labels=&template=bug_report.md&title=">Report Bug</a>
-    ·
-    <a href="https://github.com/liqotech/liqo/issues/new?assignees=&labels=enhancement&template=feature_request.md&title=%5BFeature%5D">Request Feature</a>
-</p>
+## Prerequisites
 
-## What is Liqo?
+- Linux host with Docker working
+- `kind`
+- `kubectl`
+- `liqoctl` (this branch build/binary)
+- Two already-created and running `kind` clusters
+- Access to two kubeconfig files for those clusters (examples below use `kc1.yaml` and `kc2.yaml`)
+- This repository cloned under `$HOME` (installation commands below assume that layout)
 
-Liqo is an open-source project that enables dynamic and seamless Kubernetes multi-cluster topologies, supporting heterogeneous on-premise, cloud and edge infrastructures.
+### Build local `liqoctl` version
 
-## What does it provide?
+Build `liqoctl` from this source:
 
-* **Peering**: automatic peer-to-peer establishment of resource and service consumption relationships between independent and heterogeneous clusters.
-  No need to worry about complex VPN configurations and certification authorities: everything is transparently self-negotiated for you.
-* **Offloading**: seamless workloads offloading to remote clusters, without requiring any modification to Kubernetes or the applications themselves.
-  Multi-cluster is made native and transparent: collapse an entire remote cluster to a virtual node compliant with the standard Kubernetes approaches and tools.
-* **Network fabric**: transparent multi-cluster pod-to-pod and pod-to-service connectivity, regardless of the underlying configurations and CNI plugins.
-  Natively access the services exported by remote clusters, and spread interconnected application components across multiple infrastructures, with all cross-cluster traffic flowing through secured network tunnels.
-* **Storage fabric**: support for remote execution of stateful workloads, according to the data gravity approach.
-  Seamlessly extend standard (e.g., database) high availability deployment techniques to the multi-cluster scenarios, for increased guarantees.
-  All without the complexity of managing multiple independent cluster and application replicas.
+```bash
+cd "$HOME/liqo"
+make ctl
+```
 
-## Quick start
+This generates `liqoctl` in the same folder (`$HOME/liqo/liqoctl`).
 
-Would you like to quickly join the fray and experiment with Liqo?
-Set up your playground and check out the getting started examples, which will guide you through a scenario-driven tour of the most notable features of Liqo:
 
-* [Quick Start](https://docs.liqo.io/en/stable/examples/quick-start.html): grasp a quick overview of what Liqo can do.
-* [Offloading with Policies](https://docs.liqo.io/en/stable/examples/offloading-with-policies.html): discover how to tune namespace offloading, and how to use policies to select which clusters may host each workload.
-* [Offloading a Service](https://docs.liqo.io/en/stable/examples/service-offloading.html): learn how to create a multi-cluster service, and how to consume it from each connected cluster.
-* [Stateful Applications](https://docs.liqo.io/en/stable/examples/stateful-applications.html): find out how to deploy a database across a multi-cluster environment, leveraging the Liqo storage fabric.
-* [Global Ingress](https://docs.liqo.io/en/stable/examples/global-ingress.html): discover how route external traffic to multi-cluster applications through a global ingress and automatic DNS configurations.
-* [Replicated Deployments](https://docs.liqo.io/en/stable/examples/replicated-deployments.html): learn how to deploy an application by replicating it on multiple remote clusters.
-* [Provision with Terraform](https://docs.liqo.io/en/stable/examples/provision-with-terraform.html): explore Liqo Terraform provider capabilities.
+## Install Liqo (custom branch images)
 
-### Going Further
+Install Liqo on both clusters with branch-specific controller and OpenVPN gateway images:
 
-Got curious?
-Check out the [documentation website](https://docs.liqo.io) for an in-depth overview of the Liqo features, to discover how to install Liqo on your clusters, as well as to find out about the different usage and configuration options.
+I hosted these images in my fork since I lack permissions for the upstream repo containing the official images.
+In case you want to build your own images feel free to use the standard building flow.
 
-## Roadmap
+```bash
+./liqoctl install kind --cluster-id cluster1 --cluster-labels=topology.liqo.io/type=origin --kubeconfig kc1.yaml --version v1.0.3 --local-chart-path "$HOME/liqo/deployments/liqo/" \
+  --set controllerManager.image.name=ghcr.io/gabbe64/liqo-controller-manager \
+  --set controllerManager.image.version=openvpn \
+  --set networking.gatewayTemplates.container.openvpn.image.name=ghcr.io/gabbe64/liqo-openvpn \
+  --set networking.gatewayTemplates.container.openvpn.image.version=latest
 
-Want to know about the features to come? Check out the [project roadmap](ROADMAP.md) for more information.
+./liqoctl install kind --cluster-id cluster2 --cluster-labels=topology.liqo.io/type=destination --kubeconfig kc2.yaml --version v1.0.3 --local-chart-path "$HOME/liqo/deployments/liqo/" \
+  --set controllerManager.image.name=ghcr.io/gabbe64/liqo-controller-manager \
+  --set controllerManager.image.version=openvpn \
+  --set networking.gatewayTemplates.container.openvpn.image.name=ghcr.io/gabbe64/liqo-openvpn \
+  --set networking.gatewayTemplates.container.openvpn.image.version=latest
+```
+## Peer clusters with OpenVPN gateway
 
-## Contributing
+Run peering from cluster1 to cluster2 using OpenVPN tunneling and `NodePort` service exposure:
 
-All contributors are warmly welcome. If you want to become a new contributor, we are so happy! Just, before doing it, read the tips and guidelines presented in the [dedicated documentation page](https://docs.liqo.io/en/stable/contributing/contributing.html).
+```bash
+./liqoctl peer --tunneling-protocol openvpn --kubeconfig kc1.yaml --remote-kubeconfig kc2.yaml --gw-server-service-type NodePort
+```
 
-## Community
+## Validate offloading and connectivity
 
-To get involved with the Liqo community, join the [Slack workspace](https://liqo-io.slack.com/join/shared_invite/zt-h20212gg-g24YvN6MKiD9bacFeqZttQ).
+Create and offload a namespace from cluster1:
 
-|:bell: Community Meeting|
-|------------------|
-|Liqo holds community meetings to discuss directions and options with the community. Please refer to the Liqo Slack workspace to see the date/time of the next meeting, or check the dedicated page on the [Liqo community repository](https://github.com/liqotech/liqo-community/tree/main/meetings).|
+```bash
+kubectl create namespace testing --kubeconfig kc1.yaml
+./liqoctl offload namespace testing --namespace-mapping-strategy EnforceSameName --pod-offloading-strategy LocalAndRemote --kubeconfig kc1.yaml
+```
 
-## License
+Deploy a sample app:
 
-This project includes code from the [Virtual Kubelet project](https://github.com/virtual-kubelet/virtual-kubelet), licensed under the Apache 2.0 license.
+```bash
+kubectl create deployment nginx --image=nginx -n testing --kubeconfig kc1.yaml
+kubectl expose deployment nginx -n testing --type=ClusterIP --port=80 --target-port=80 --kubeconfig kc1.yaml
+```
 
-Liqo is distributed under the Apache-2.0 License. See [License](LICENSE) for more information.
+Now offloading is active on the `testing` namespace.
 
-<p align="center">
-Liqo is a project kicked off at Polytechnic of Turin (Italy) and actively maintained with :heart: by all the Liqoers.
-</p>
+## OpenVPN gateway template args customization
+
+When Liqo is installed, it creates two template resources used for OpenVPN peering:
+- `OvpnGatewayServerTemplate` (server side)
+- `OvpnGatewayClientTemplate` (client side)
+
+To change OpenVPN runtime behavior, edit the `openvpn` container `args` inside those templates.
+The field to edit is:
+
+`spec.template.spec.deployment.spec.template.spec.containers[]` (the item with `name: openvpn`).
+
+### Workflow
+
+Export the current templates:
+
+```bash
+kubectl get ovpngatewayservertemplate openvpn-gwserver -n liqo -o yaml > ovpn-gwserver-template.yaml
+kubectl get ovpngatewayclienttemplate openvpn-gwclient -n liqo -o yaml > ovpn-gwclient-template.yaml
+```
+
+Edit the `args` list of the `openvpn` container in both files. Example of the section to tweak:
+
+```yaml
+spec:
+  template:
+    spec:
+      deployment:
+        spec:
+          template:
+            spec:
+              containers:
+              - name: openvpn
+                args:
+                - --mode=server
+                - --ifconfig-local-ip=169.254.18.1
+                - --ifconfig-remote-ip=169.254.18.2
+                - --port={{ .Spec.Endpoint.Port }}
+                # add/change additional args supported by your OpenVPN container
+```
+
+Apply the updated templates:
+
+```bash
+kubectl apply -f ovpn-gwserver-template.yaml
+kubectl apply -f ovpn-gwclient-template.yaml
+```
+
+Notes:
+- keep required placeholders intact when present (e.g. `{{ .Spec.Endpoint.Port }}`);
+- keep role-specific modes coherent (`server` on server template, `client` on client template);
+- template updates are applied to new gateway resources, so recreate/re-peer if existing gateways were already generated.
+
+## References in this repo
+
+- `liqo/docs/usage/liqoctl/liqoctl_peer.md`
+- `liqo/docs/advanced/nat.md`
+
+## Experimental status
+
+This work is an experimental feature developed as a proof of concept.
+
+It is intended to:
+- validate the OpenVPN tunneling path in Liqo,
+- provide a practical reference for testing and iteration,
+- and act as a guideline for implementing and integrating new tunneling features in the future.
+
+It should be treated as a development/testing artifact, not as a production-ready reference.
+
