@@ -175,9 +175,14 @@ func (o *Options) RunConnect(ctx context.Context) error {
 		return err
 	}
 
-	// Wait for the gateway pod to be ready
-	if err := cluster2.waiter.ForGatewayPodReady(ctx, gwServer); err != nil {
-		return err
+	// Wait for the gateway pod to be ready.
+	// For FoU gateways, the server deployment is only created after the client endpoint is
+	// propagated (the FouGatewayServer controller gates the deployment on --remote-port being set).
+	// Skip this wait for FoU so we can proceed to create the client and propagate the endpoint.
+	if gwServer.Spec.ServerTemplateRef.Kind != networkingv1beta1.FouGatewayServerTemplateKind {
+		if err := cluster2.waiter.ForGatewayPodReady(ctx, gwServer); err != nil {
+			return err
+		}
 	}
 
 	// Wait for the endpoint status of the gateway server to be set
@@ -209,8 +214,20 @@ func (o *Options) RunConnect(ctx context.Context) error {
 		return err
 	}
 
-	// If sharing keys is disabled, return immediately
-	if o.DisableSharingKeys {
+	isFoU := gwServer.Spec.ServerTemplateRef.Kind == networkingv1beta1.FouGatewayServerTemplateKind &&
+		gwClient.Spec.ClientTemplateRef.Kind == networkingv1beta1.FouGatewayClientTemplateKind
+
+	if isFoU {
+		if err := cluster1.waiter.ForGatewayClientStatusEndpoint(ctx, gwClient); err != nil {
+			return err
+		}
+		if err := cluster2.EnsureGatewayServerClientEndpoint(ctx, gwClient.Status.Endpoint); err != nil {
+			return err
+		}
+	}
+
+	// FoU does not use WireGuard keys; skip the key-sharing step entirely.
+	if isFoU || o.DisableSharingKeys {
 		return nil
 	}
 

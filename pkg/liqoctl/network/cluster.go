@@ -396,6 +396,23 @@ func endpointHasChanged(endpoint *networkingv1beta1.Endpoint, service *corev1.Se
 	return false
 }
 
+func cloneEndpointStatus(endpoint *networkingv1beta1.EndpointStatus) *networkingv1beta1.EndpointStatus {
+	if endpoint == nil {
+		return nil
+	}
+
+	cloned := &networkingv1beta1.EndpointStatus{
+		Addresses: append([]string(nil), endpoint.Addresses...),
+		Port:      endpoint.Port,
+	}
+	if endpoint.Protocol != nil {
+		protocol := *endpoint.Protocol
+		cloned.Protocol = &protocol
+	}
+
+	return cloned
+}
+
 // EnsureGatewayServer create or updates a GatewayServer.
 func (c *Cluster) EnsureGatewayServer(ctx context.Context, opts *forge.GwServerOptions) (*networkingv1beta1.GatewayServer, error) {
 	s := c.local.Printer.StartSpinner("Setting up gateway server")
@@ -445,6 +462,36 @@ func (c *Cluster) EnsureGatewayServer(ctx context.Context, opts *forge.GwServerO
 
 	s.Success("Gateway server correctly set up")
 	return gwServer, nil
+}
+
+// EnsureGatewayServerClientEndpoint updates the remote client endpoint exposed by a GatewayServer.
+func (c *Cluster) EnsureGatewayServerClientEndpoint(ctx context.Context, endpoint *networkingv1beta1.EndpointStatus) error {
+	s := c.local.Printer.StartSpinner("Updating gateway server client endpoint")
+
+	if endpoint == nil || len(endpoint.Addresses) == 0 {
+		err := fmt.Errorf("gateway client endpoint is not available yet")
+		s.Fail(fmt.Sprintf("An error occurred while updating gateway server client endpoint: %v", output.PrettyErr(err)))
+		return err
+	}
+
+	gwServer, err := getters.GetGatewayServerByClusterID(ctx, c.local.CRClient, c.remoteClusterID, c.localNetworkNamespace)
+	if err != nil {
+		s.Fail(fmt.Sprintf("An error occurred while retrieving gateway server: %v", output.PrettyErr(err)))
+		return err
+	}
+
+	endpointCopy := cloneEndpointStatus(endpoint)
+	_, err = resource.CreateOrUpdate(ctx, c.local.CRClient, gwServer, func() error {
+		gwServer.Spec.ClientEndpoint = endpointCopy
+		return nil
+	})
+	if err != nil {
+		s.Fail(fmt.Sprintf("An error occurred while updating gateway server client endpoint: %v", output.PrettyErr(err)))
+		return err
+	}
+
+	s.Success("Gateway server client endpoint correctly updated")
+	return nil
 }
 
 // EnsureGatewayClient create or updates a GatewayClient.
