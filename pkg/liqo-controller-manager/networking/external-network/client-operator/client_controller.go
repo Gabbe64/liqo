@@ -83,6 +83,10 @@ func NewClientReconciler(cl client.Client, dynClient dynamic.Interface,
 // +kubebuilder:rbac:groups=networking.liqo.io,resources=wggatewayclients/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=networking.liqo.io,resources=wggatewayclients/finalizers,verbs=update
 // +kubebuilder:rbac:groups=networking.liqo.io,resources=wggatewayclienttemplates,verbs=get;list;watch;delete;create;update;patch
+// +kubebuilder:rbac:groups=networking.liqo.io,resources=fougatewayclients,verbs=get;list;watch;delete;create;update;patch
+// +kubebuilder:rbac:groups=networking.liqo.io,resources=fougatewayclients/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=networking.liqo.io,resources=fougatewayclients/finalizers,verbs=update
+// +kubebuilder:rbac:groups=networking.liqo.io,resources=fougatewayclienttemplates,verbs=get;list;watch;delete;create;update;patch
 
 // Reconcile manage GatewayClient lifecycle.
 func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, err error) {
@@ -263,6 +267,10 @@ func (r *ClientReconciler) EnsureGatewayClient(ctx context.Context, gwClient *ne
 	secretRef, ok := enutils.GetIfExists[map[string]interface{}](status, "secretRef")
 	if ok && secretRef != nil {
 		gwClient.Status.SecretRef = enutils.ParseRef(*secretRef)
+	}
+	endpoint, ok := enutils.GetIfExists[map[string]interface{}](status, "endpoint")
+	if ok && endpoint != nil {
+		gwClient.Status.Endpoint = enutils.ParseEndpoint(*endpoint)
 	}
 	internalEndpoint, ok := enutils.GetIfExists[map[string]interface{}](status, "internalEndpoint")
 	if ok && internalEndpoint != nil {

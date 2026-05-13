@@ -30,7 +30,6 @@ import (
 
 	networkingv1beta1 "github.com/liqotech/liqo/apis/networking/v1beta1"
 	"github.com/liqotech/liqo/pkg/gateway"
-	"github.com/liqotech/liqo/pkg/gateway/tunnel"
 	"github.com/liqotech/liqo/pkg/utils/resource"
 )
 
@@ -49,10 +48,15 @@ func enforceRoutePodPresence(ctx context.Context, cl client.Client, scheme *runt
 		return "", err
 	}
 
+	iif, err := inboundTunnelIif(ctx, cl)
+	if err != nil {
+		return "", fmt.Errorf("determining inbound tunnel iif: %w", err)
+	}
+
 	routecfg := &networkingv1beta1.RouteConfiguration{
 		ObjectMeta: metav1.ObjectMeta{Name: generatePodRouteConfigurationName(pod.Spec.NodeName), Namespace: opts.Namespace},
 	}
-	op, err := resource.CreateOrUpdate(ctx, cl, routecfg, forgeRoutePodUpdateFunction(internalnode, routecfg, pod, scheme))
+	op, err := resource.CreateOrUpdate(ctx, cl, routecfg, forgeRoutePodUpdateFunction(internalnode, routecfg, pod, scheme, iif))
 	if err != nil {
 		return "", fmt.Errorf("enforcing route configuration %s: %w", routecfg.GetName(), err)
 	}
@@ -94,7 +98,7 @@ func enforceRoutePodAbsence(ctx context.Context, cl client.Client, opts *Options
 }
 
 func forgeRoutePodUpdateFunction(internalnode *networkingv1beta1.InternalNode, routecfg *networkingv1beta1.RouteConfiguration,
-	pod *corev1.Pod, scheme *runtime.Scheme) controllerutil.MutateFn {
+	pod *corev1.Pod, scheme *runtime.Scheme, iif string) controllerutil.MutateFn {
 	return func() error {
 		if err := controllerutil.SetOwnerReference(internalnode, routecfg, scheme); err != nil {
 			return err
@@ -104,7 +108,7 @@ func forgeRoutePodUpdateFunction(internalnode *networkingv1beta1.InternalNode, r
 
 		routecfg.Spec.Table.Name = pod.Spec.NodeName
 
-		if routecfg.Spec.Table.Rules == nil || len(routecfg.Spec.Table.Rules) < 1 {
+		if len(routecfg.Spec.Table.Rules) < 1 {
 			routecfg.Spec.Table.Rules = make([]networkingv1beta1.Rule, 1)
 			routecfg.Spec.Table.Rules[0].Dst = ptr.To(networkingv1beta1.CIDR(
 				fmt.Sprintf("%s/32", internalnode.Spec.Interface.Node.IP),
@@ -121,10 +125,10 @@ func forgeRoutePodUpdateFunction(internalnode *networkingv1beta1.InternalNode, r
 			return nil
 		}
 
-		if routecfg.Spec.Table.Rules == nil || len(routecfg.Spec.Table.Rules) < 2 {
+		if len(routecfg.Spec.Table.Rules) < 2 {
 			routecfg.Spec.Table.Rules = append(routecfg.Spec.Table.Rules, networkingv1beta1.Rule{})
-			routecfg.Spec.Table.Rules[1].Iif = ptr.To(tunnel.TunnelInterfaceName)
 		}
+		routecfg.Spec.Table.Rules[1].Iif = ptr.To(iif)
 
 		if existingroute, exists := routeContainsPod(pod, &routecfg.Spec.Table.Rules[1]); exists {
 			updatePodToRoute(pod, internalnode, existingroute)
@@ -139,18 +143,14 @@ func forgeRoutePodUpdateFunction(internalnode *networkingv1beta1.InternalNode, r
 // forgeRoutePodDeleteFunction removes the pod entries from the route configuration.
 func forgeRoutePodDeleteFunction(pod *corev1.Pod, routecfg *networkingv1beta1.RouteConfiguration) controllerutil.MutateFn {
 	return func() error {
-		if routecfg.Spec.Table.Rules == nil || len(routecfg.Spec.Table.Rules) <= 1 {
+		if len(routecfg.Spec.Table.Rules) <= 1 {
 			return nil
 		}
-
-		// We allocate this array statically with length 2.
-		// The rule we are managing is the second one.
 		if existingroute, exists := routeContainsPod(pod, &routecfg.Spec.Table.Rules[1]); exists {
 			routecfg.Spec.Table.Rules[1].Routes = slices.DeleteFunc(routecfg.Spec.Table.Rules[1].Routes, func(r networkingv1beta1.Route) bool {
 				return r.Dst == existingroute.Dst
 			})
 		}
-
 		return nil
 	}
 }

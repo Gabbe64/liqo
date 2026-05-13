@@ -68,6 +68,10 @@ func InitFlags(flagset *pflag.FlagSet, opts *Options) {
 		"The name of the cluster role used by the wireguard gateway servers")
 	flagset.StringVar(&opts.WgGatewayClientClusterRoleName, "wg-gateway-client-cluster-role-name", "liqo-gateway",
 		"The name of the cluster role used by the wireguard gateway clients")
+	flagset.StringVar(&opts.FouGatewayServerClusterRoleName, "fou-gateway-server-cluster-role-name", "liqo-gateway",
+		"The name of the cluster role used by the FoU gateway servers")
+	flagset.StringVar(&opts.FouGatewayClientClusterRoleName, "fou-gateway-client-cluster-role-name", "liqo-gateway",
+		"The name of the cluster role used by the FoU gateway clients")
 	flagset.BoolVar(&opts.FabricFullMasqueradeEnabled, "fabric-full-masquerade-enabled", false,
 		"Enable the full masquerade on the fabric network")
 	flagset.BoolVar(&opts.GwmasqbypassEnabled, "gateway-masquerade-bypass-enabled", false,

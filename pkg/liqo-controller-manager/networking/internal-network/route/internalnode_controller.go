@@ -155,6 +155,10 @@ func (r *InternalNodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&networkingv1beta1.InternalNode{}).
 		Watches(&networkingv1beta1.Configuration{}, handler.EnqueueRequestsFromMapFunc(r.genericEnqueuerfunc)).
 		Watches(&ipamv1alpha1.IP{}, handler.EnqueueRequestsFromMapFunc(r.genericEnqueuerfunc)).
+		// Re-reconcile all nodes when a GatewayServer/Client changes so that the Iif in
+		// extcidr rules is updated if the tunnel type changes (FoU vs WireGuard).
+		Watches(&networkingv1beta1.GatewayServer{}, handler.EnqueueRequestsFromMapFunc(r.genericEnqueuerfunc)).
+		Watches(&networkingv1beta1.GatewayClient{}, handler.EnqueueRequestsFromMapFunc(r.genericEnqueuerfunc)).
 		Complete(r)
 }
 
