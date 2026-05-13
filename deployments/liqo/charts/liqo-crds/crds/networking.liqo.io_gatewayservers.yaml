@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.1
+    controller-gen.kubebuilder.io/version: v0.16.3
   name: gatewayservers.networking.liqo.io
 spec:
   group: networking.liqo.io
@@ -74,6 +74,28 @@ spec:
           spec:
             description: GatewayServerSpec defines the desired state of GatewayServer.
             properties:
+              clientEndpoint:
+                description: |-
+                  ClientEndpoint specifies the endpoint of the remote gateway client.
+                  Used by FOU tunneling to propagate the client's external address/port to the
+                  server template at render time. Not used by WireGuard.
+                properties:
+                  addresses:
+                    description: Addresses specifies the addresses of the endpoint.
+                    items:
+                      type: string
+                    type: array
+                  port:
+                    description: Port specifies the port of the endpoint.
+                    format: int32
+                    type: integer
+                  protocol:
+                    description: Protocol specifies the protocol of the endpoint.
+                    enum:
+                    - TCP
+                    - UDP
+                    type: string
+                type: object
               endpoint:
                 description: Endpoint specifies the endpoint of the tunnel.
                 properties:

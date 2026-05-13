@@ -63,6 +63,11 @@ type GatewayServerSpec struct {
 	// SecretRef specifies the reference to the secret containing configurations.
 	// Leave it empty to let the operator create a new secret.
 	SecretRef corev1.LocalObjectReference `json:"secretRef,omitempty"`
+	// ClientEndpoint specifies the endpoint of the remote gateway client.
+	// Used by FOU tunneling to propagate the client's external address/port to the
+	// server template at render time. Not used by WireGuard.
+	// +optional
+	ClientEndpoint *EndpointStatus `json:"clientEndpoint,omitempty"`
 }
 
 // EndpointStatus defines the observed state of the endpoint.

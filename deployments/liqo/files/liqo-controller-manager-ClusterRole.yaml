@@ -179,6 +179,10 @@ rules:
   resources:
   - configurations
   - firewallconfigurations
+  - fougatewayclients
+  - fougatewayclienttemplates
+  - fougatewayservers
+  - fougatewayservertemplates
   - gatewayclients
   - gatewayservers
   - genevetunnels
@@ -202,6 +206,8 @@ rules:
   - networking.liqo.io
   resources:
   - configurations/finalizers
+  - fougatewayclients/finalizers
+  - fougatewayservers/finalizers
   - gatewayclients/finalizers
   - gatewayservers/finalizers
   - genevetunnels/finalizers
@@ -234,6 +240,8 @@ rules:
   - networking.liqo.io
   resources:
   - firewallconfigurations/status
+  - fougatewayclients/status
+  - fougatewayservers/status
   - gatewayclients/status
   - gatewayservers/status
   - internalfabrics/status

@@ -124,6 +124,12 @@ networking:
           name: "ghcr.io/liqotech/gateway/wireguard"
           # -- Custom version for the wireguard image. If not specified, the global tag is used.
           version: ""
+      fou:
+        image:
+          # -- Image repository for the fou container.
+          name: "ghcr.io/liqotech/gateway/fou"
+          # -- Custom version for the fou image. If not specified, the global tag is used.
+          version: ""
       geneve:
         image:
           # -- Image repository for the geneve container.

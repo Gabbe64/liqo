@@ -56,6 +56,10 @@ type GatewayClientStatus struct {
 	SecretRef *corev1.ObjectReference `json:"secretRef,omitempty"`
 	// InternalEndpoint specifies the endpoint for the internal network.
 	InternalEndpoint *InternalGatewayEndpoint `json:"internalEndpoint,omitempty"`
+	// Endpoint specifies the public endpoint of the gateway client.
+	// Populated by the FoU gateway client controller after the LoadBalancer Service is provisioned.
+	// +optional
+	Endpoint *EndpointStatus `json:"endpoint,omitempty"`
 }
 
 // +kubebuilder:object:root=true
