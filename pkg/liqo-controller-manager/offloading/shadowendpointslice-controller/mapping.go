@@ -24,12 +24,10 @@ import (
 	liqov1beta1 "github.com/liqotech/liqo/apis/core/v1beta1"
 	directconnectioninfo "github.com/liqotech/liqo/pkg/utils/directconnection"
 	ipamips "github.com/liqotech/liqo/pkg/utils/ipam/mapping"
-	directconnectioninfo "github.com/liqotech/liqo/pkg/utils/directconnection"
 	klog "k8s.io/klog/v2"
 )
 
 // MapEndpointsWithConfiguration maps the endpoints of the shadowendpointslice.
-<<<<<<< HEAD
 //
 // It also maps the addresses using a different clusterID in case address is found in the DirectConnectionIndex.
 func MapEndpointsWithConfiguration(ctx context.Context, cl client.Client,
