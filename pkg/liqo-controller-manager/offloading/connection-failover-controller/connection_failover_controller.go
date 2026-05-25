@@ -195,11 +195,11 @@ func (r *Reconciler) reconcileFailoverForEPS(ctx context.Context, name, namespac
 // directConnectionDataContainsCluster checks whether the JSON-encoded DirectConnectionData
 // annotation value references the given clusterID as a key.
 func directConnectionDataContainsCluster(annotationVal, clusterID string) bool {
-	var data directconnectioninfo.DirectConnectionData
+	var data directconnectioninfo.ClusterAddresses
 	if err := json.Unmarshal([]byte(annotationVal), &data); err != nil {
 		return false
 	}
-	_, ok := data.ByCluster[clusterID]
+	_, ok := data.Clusters[clusterID]
 	return ok
 }
 
@@ -227,7 +227,7 @@ func (r *Reconciler) getDirectEPSCreateEventHandler(ctx context.Context) handler
 			return nil
 		}
 
-		var data directconnectioninfo.DirectConnectionData
+		var data directconnectioninfo.ClusterAddresses
 		if err := json.Unmarshal([]byte(annotationVal), &data); err != nil {
 			return nil
 		}
@@ -241,7 +241,7 @@ func (r *Reconciler) getDirectEPSCreateEventHandler(ctx context.Context) handler
 		for i := range connList.Items {
 			conn := &connList.Items[i]
 			peerID := conn.Labels[consts.RemoteClusterID]
-			if _, involved := data.ByCluster[peerID]; involved {
+			if _, involved := data.Clusters[peerID]; involved {
 				requests = append(requests, reconcile.Request{
 					NamespacedName: types.NamespacedName{
 						Name:      conn.Name,

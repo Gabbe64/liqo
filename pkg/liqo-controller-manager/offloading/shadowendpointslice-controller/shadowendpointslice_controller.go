@@ -113,8 +113,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if err := remoteConnectionsData.FromJSON([]byte(val)); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to unmarshal direct connection data for shadowendpointslice %q: %w", nsName, err)
 		}
-		// JSON is not propagated to the EndpointSlice
-		delete(shadowEps.Annotations, consts.DirectConnectionDataAnnotationKey)
 	}
 	// Get the endpoints from the shadowendpointslice and remap them if necessary.
 	remappedEndpoints := shadowEps.Spec.Template.Endpoints
