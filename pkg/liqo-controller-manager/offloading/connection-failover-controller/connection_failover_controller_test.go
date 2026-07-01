@@ -95,12 +95,12 @@ const (
 	testSvcName   = "my-service"
 
 	// JSON value for consts.DirectConnectionDataAnnotationKey that references testClusterID.
-	// The struct is DirectConnectionData{ByCluster: map[string][]string{testClusterID: {"10.0.0.1"}}}.
-	// The JSON key ("clstrIDtoAddrs") comes from the struct tag in directconnection.go.
-	directConnAnnotation = `{"clstrIDtoAddrs":{"` + testClusterID + `":["10.0.0.1"]}}`
+	// The struct is ClusterAddresses{Clusters: map[string][]string{testClusterID: {"10.0.0.1"}}}.
+	// The JSON key ("clusterAddresses") comes from the struct tag in directconnection.go.
+	directConnAnnotation = `{"clusterAddresses":{"` + testClusterID + `":["10.0.0.1"]}}`
 
 	// JSON annotation for a *different* cluster that should not trigger failover.
-	otherClusterAnnotation = `{"clstrIDtoAddrs":{"other-cluster":["10.0.0.2"]}}`
+	otherClusterAnnotation = `{"clusterAddresses":{"other-cluster":["10.0.0.2"]}}`
 )
 
 // ─── object factory helpers ──────────────────────────────────────────────────
@@ -498,7 +498,7 @@ var _ = Describe("ConnectionFailover Reconciler", func() {
 						consts.ManagedByLabelKey: consts.ManagedByShadowEndpointSliceValue,
 					},
 					Annotations: map[string]string{
-						consts.DirectConnectionDataAnnotationKey: `{"clstrIDtoAddrs":{"` + otherCluster + `":["10.0.0.2"]}}`,
+						consts.DirectConnectionDataAnnotationKey: `{"clusterAddresses":{"` + otherCluster + `":["10.0.0.2"]}}`,
 					},
 				},
 			}
@@ -554,6 +554,6 @@ var _ = Describe("directConnectionDataContainsCluster", func() {
 	})
 
 	It("returns false when the JSON object is valid but ByCluster is empty", func() {
-		Expect(directConnectionDataContainsCluster(`{"clstrIDtoAddrs":{}}`, testClusterID)).To(BeFalse())
+		Expect(directConnectionDataContainsCluster(`{"clusterAddresses":{}}`, testClusterID)).To(BeFalse())
 	})
 })

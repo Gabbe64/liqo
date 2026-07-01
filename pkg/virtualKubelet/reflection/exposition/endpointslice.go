@@ -283,11 +283,6 @@ func (ner *NamespacedEndpointSliceReflector) Handle(ctx context.Context, name st
 				continue
 			}
 
-			// No data collection for nodes in the remote cluster or in the central cluster
-			if !shouldIncludeDataFromNode(node, clusterID, string(forge.RemoteCluster)) {
-				continue
-			}
-
 			IPs := endpoint.Addresses
 			remoteConnectionsData.Add(clusterID, IPs...)
 		}
