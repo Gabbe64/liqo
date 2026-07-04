@@ -115,7 +115,7 @@ spec:
           {{- if .Values.controllerManager.config.enableNodeFailureController }}
           - --enable-node-failure-controller
           {{- end }}
-          {{- if .Values.controllerManager.config.denyDirectConnections }}
+          {{- if .Values.networking.denyDirectConnections }}
           - --deny-direct-connections
           {{- end }}
           {{- if .Values.common.extraArgs }}

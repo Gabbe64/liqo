@@ -17,8 +17,6 @@ package shadowendpointslicectrl
 import (
 	"context"
 	"fmt"
-	"maps"
-	"strings"
 
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -27,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -39,28 +38,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	liqov1beta1 "github.com/liqotech/liqo/apis/core/v1beta1"
+	networkingv1beta1 "github.com/liqotech/liqo/apis/networking/v1beta1"
 	offloadingv1beta1 "github.com/liqotech/liqo/apis/offloading/v1beta1"
 	"github.com/liqotech/liqo/pkg/consts"
 	"github.com/liqotech/liqo/pkg/utils"
 	clientutils "github.com/liqotech/liqo/pkg/utils/clients"
-	"github.com/liqotech/liqo/pkg/utils/directconnection"
 	foreigncluster "github.com/liqotech/liqo/pkg/utils/foreigncluster"
 	"github.com/liqotech/liqo/pkg/utils/resource"
 	"github.com/liqotech/liqo/pkg/virtualKubelet/forge"
 )
 
-const (
-	ctrlFieldManager = "shadow-endpointslice-controller"
-)
+const ctrlFieldManager = "shadow-endpointslice-controller"
 
 // Reconciler reconciles a ShadowEndpointSlice object.
 type Reconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 
-	// DenyDirectConnections, when true, prevents endpoints reachable through a direct
-	// provider-to-provider connection (i.e. the ones listed in the direct-connection annotation
-	// data) from being added to the forged EndpointSlice.
 	DenyDirectConnections bool
 }
 
@@ -69,6 +64,9 @@ type Reconciler struct {
 // +kubebuilder:rbac:groups=core.liqo.io,resources=foreignclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core.liqo.io,resources=foreignclusters/status,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.liqo.io,resources=configurations,verbs=get;list;watch
+// +kubebuilder:rbac:groups=networking.liqo.io,resources=connections,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch
 
 // Reconcile ShadowEndpointSlices objects.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -107,35 +105,37 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// Check foreign API server status
 	apiServerReady := foreigncluster.IsAPIServerReadyOrDisabled(fc)
 
-	// Check if direct connections data is provided
-	var remoteConnectionsData directconnection.ClusterAddresses
-	if val, ok := shadowEps.Annotations[consts.DirectConnectionDataAnnotationKey]; ok {
-		if err := remoteConnectionsData.FromJSON([]byte(val)); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to unmarshal direct connection data for shadowendpointslice %q: %w", nsName, err)
-		}
+	// Classify the slice with respect to the direct-connections feature and check the usability
+	// of the direct path its endpoints depend on (see directconnections.go).
+	dp, err := r.resolveDirectPath(ctx, &shadowEps)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("shadowendpointslice %q: %w", nsName, err)
 	}
+
+	// Never-peered misconfiguration: the direct slice cannot be materialized correctly, so
+	// surface the problem and stop (the indirect companion keeps the Service working meanwhile).
+	if dp.isDirect() && dp.state == directPathNotPeered {
+		return ctrl.Result{}, r.rejectNotPeered(ctx, &shadowEps, dp.notPeered)
+	}
+
 	// Get the endpoints from the shadowendpointslice and remap them if necessary.
 	remappedEndpoints := shadowEps.Spec.Template.Endpoints
-	rcindex := remoteConnectionsData.BuildIndex()
 
-	// If direct connections are denied, drop every endpoint referring to a pod reachable only
-	// through a direct provider-to-provider connection, so it is not added to the EndpointSlice.
-	if r.DenyDirectConnections {
-		remappedEndpoints = FilterOutDirectConnectionEndpoints(remappedEndpoints, rcindex)
+	// Index of the addresses reachable through direct connections
+	translationIndex := dp.data.BuildIndex()
+	if dp.isDirect() && dp.state == directPathDenied {
+		// Direct EndpointSlices can lack a matching Configuration when direct connections
+		// are denied, so disable translation to avoid remapping errors in this corner case.
+		translationIndex = nil
 	}
 
 	if foreigncluster.IsNetworkingModuleEnabled(fc) {
-
-		rcindex := remoteConnectionsData.BuildIndex()
-
 		// remap the endpoints if the network configuration of the remote cluster overlaps with the local one
-		if err := MapEndpointsWithConfiguration(ctx, r.Client, clusterID, remappedEndpoints, rcindex); err != nil {
+		if err := MapEndpointsWithConfiguration(ctx, r.Client, clusterID, remappedEndpoints, translationIndex); err != nil {
 			return ctrl.Result{}, fmt.Errorf("an error occurred while remapping endpoints for shadowendpointslice %q: %w", nsName, err)
 		}
-	} else if rcindex != nil {
-		// Networking between consumer and provider is disabled, but direct provider-to-provider connections
-		// may still be present. Remap only those addresses so they can be reached via the direct link.
-		if err := MapOnlyDirectConnectionEndpoints(ctx, r.Client, remappedEndpoints, rcindex); err != nil {
+	} else if translationIndex != nil {
+		if err := MapOnlyDirectConnectionEndpoints(ctx, r.Client, remappedEndpoints, translationIndex); err != nil {
 			return ctrl.Result{}, fmt.Errorf("an error occurred while remapping direct-connection endpoints for shadowendpointslice %q: %w", nsName, err)
 		}
 	}
@@ -157,24 +157,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		Ports:       shadowEps.Spec.Template.Ports,
 	}
 
-	// Depending on the current status of the foreign cluster, we update all endpoints' "Ready" conditions.
-	// Endpoints are ready only if both the tunnel endpoint and the API server of the foreign cluster are ready.
-	// Note: An endpoint is updated only if the shadowendpointslice endpoint has the condition "Ready" set
-	// to True or nil. i.e: if the foreign cluster sets the endpoint condition "Ready" to False, also the local
-	// endpoint condition is set to False regardless of the current status of the foreign cluster.
-	endpointsReady := networkReady && apiServerReady
-	for i := range newEps.Endpoints {
-		endpoint := &newEps.Endpoints[i]
-		if endpoint.Conditions.Ready == nil || *endpoint.Conditions.Ready {
-			endpoint.Conditions.Ready = &endpointsReady
-		}
-	}
-
-	// Determine ShadowEPS type for failover label management.
-	// isIndirect: carries IPAM-remapped hub-and-spoke addresses; kube-proxy normally ignores it.
-	// isDirect:   carries direct peer IPs and normally holds kubernetes.io/service-name.
-	isIndirect := shadowEps.Labels[forge.IndirectEndpointSliceLabelKey] == "true"
-	isDirect := !isIndirect && len(remoteConnectionsData.Clusters) > 0
+	// Update all endpoints' "Ready" conditions depending on the status of the foreign cluster
+	// and, for slices taking part in direct connections, on the usability of the direct path
+	endpointsReady := computeEndpointsReady(&dp, networkReady, apiServerReady)
+	applyReadiness(newEps.Endpoints, endpointsReady)
 
 	// Get existing endpointslice if it is already been created from the shadowendpointslice
 	var existingEps discoveryv1.EndpointSlice
@@ -187,15 +173,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 		resource.AddGlobalLabels(&newEps)
 		resource.AddGlobalAnnotations(&newEps)
-
-		// If this indirect EPS is being created while the direct connection is already in
-		// failover mode, immediately inject kubernetes.io/service-name so kube-proxy uses
-		// it from the very first moment without a flip-flop reconcile cycle.
-		if isIndirect {
-			if svcName, svcErr := r.getDirectServiceNameForFailover(ctx, shadowEps.Name, nsName.Namespace); svcErr == nil && svcName != "" {
-				newEps.Labels[discoveryv1.LabelServiceName] = svcName
-			}
-		}
 
 		if err := r.Create(ctx, &newEps, client.FieldOwner(ctrlFieldManager)); err != nil {
 			klog.Errorf("unable to create endpointslice for shadowendpointslice %q: %v", klog.KObj(&shadowEps), err)
@@ -212,29 +189,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	default:
 		klog.V(4).Infof("endpointslice %q found running, will update it", klog.KObj(&existingEps))
-
-		// Failover label management: when the direct tunnel is down, the failover controller
-		// sets DirectConnectionFailoverAnnotation on the direct EPS. The ShadowEPS controller
-		// reacts by swapping which EPS holds kubernetes.io/service-name, transparently
-		// redirecting kube-proxy traffic to the hub-and-spoke (indirect) path.
-		//
-		//   Direct ShadowEPS + failover active  → suppress service-name (kube-proxy ignores EPS)
-		//   Indirect ShadowEPS + failover active → inject service-name  (kube-proxy uses EPS)
-		//
-		// Endpoint addresses and readiness conditions are still updated normally in both cases.
-		if isDirect {
-			if existingEps.Annotations[consts.DirectConnectionFailoverAnnotation] == "true" {
-				klog.V(4).Infof("endpointslice %q is in failover mode, suppressing %q label",
-					klog.KObj(&existingEps), discoveryv1.LabelServiceName)
-				delete(newEps.Labels, discoveryv1.LabelServiceName)
-			}
-		} else if isIndirect {
-			if svcName, svcErr := r.getDirectServiceNameForFailover(ctx, shadowEps.Name, nsName.Namespace); svcErr == nil && svcName != "" {
-				klog.V(4).Infof("endpointslice %q: companion direct EPS is in failover mode, injecting %q label",
-					klog.KObj(&existingEps), discoveryv1.LabelServiceName)
-				newEps.Labels[discoveryv1.LabelServiceName] = svcName
-			}
-		}
 
 		// Create Apply object for existing endpointslice
 		epsApply := EndpointSliceApply(&newEps)
@@ -311,57 +265,6 @@ func (r *Reconciler) endpointsShouldBeUpdated(newObj, oldObj client.Object) bool
 	return oldFcNetworkReady != newFcNetworkReady || oldFcAPIServerReady != newFcAPIServerReady
 }
 
-// getDirectServiceNameForFailover checks whether the companion direct EndpointSlice for the
-// given indirect ShadowEndpointSlice is in failover mode (DirectConnectionFailoverAnnotation == "true").
-// When it is, the function returns the kubernetes.io/service-name value taken from the direct
-// ShadowEPS (which always carries this label, kept up to date by the VK from the consumer EPS).
-// Returns ("", nil) when failover is not active or the companion EPS / ShadowEPS is not found.
-func (r *Reconciler) getDirectServiceNameForFailover(ctx context.Context, indirectShadowName, namespace string) (string, error) {
-	if !strings.HasSuffix(indirectShadowName, forge.IndirectEndpointSliceSuffix) {
-		return "", nil
-	}
-	directName := indirectShadowName[:len(indirectShadowName)-len(forge.IndirectEndpointSliceSuffix)]
-
-	var directEPS discoveryv1.EndpointSlice
-	if err := r.Get(ctx, types.NamespacedName{Name: directName, Namespace: namespace}, &directEPS); err != nil {
-		if errors.IsNotFound(err) {
-			return "", nil
-		}
-		return "", err
-	}
-
-	if directEPS.Annotations[consts.DirectConnectionFailoverAnnotation] != "true" {
-		return "", nil
-	}
-
-	// The direct EPS already has its service-name label removed during failover; fetch the
-	// direct ShadowEPS (maintained by VK, always has kubernetes.io/service-name) instead.
-	var directShadow offloadingv1beta1.ShadowEndpointSlice
-	if err := r.Get(ctx, types.NamespacedName{Name: directName, Namespace: namespace}, &directShadow); err != nil {
-		if errors.IsNotFound(err) {
-			return "", nil
-		}
-		return "", err
-	}
-
-	return directShadow.Labels[discoveryv1.LabelServiceName], nil
-}
-
-// getDirectEPSFailoverHandler returns an event handler that enqueues the companion indirect
-// ShadowEndpointSlice for reconciliation whenever DirectConnectionFailoverAnnotation is set or
-// removed on a direct EPS. This ensures the indirect EPS gains or loses kubernetes.io/service-name
-// in sync with the direct EPS shedding or regaining it.
-func (r *Reconciler) getDirectEPSFailoverHandler() handler.EventHandler {
-	return handler.EnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
-		return []reconcile.Request{{
-			NamespacedName: types.NamespacedName{
-				Name:      obj.GetName() + forge.IndirectEndpointSliceSuffix,
-				Namespace: obj.GetNamespace(),
-			},
-		}}
-	})
-}
-
 // SetupWithManager monitors updates on ShadowEndpointSlices.
 func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, workers int) error {
 	// Trigger a reconciliation only for Update Events on NetworkStatus of the ForeignCluster.
@@ -372,44 +275,16 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, wor
 		GenericFunc: func(_ event.GenericEvent) bool { return false },
 	}
 
-	// Trigger the companion indirect ShadowEPS reconcile when DirectConnectionFailoverAnnotation
-	// is added or removed on a direct EPS, so both EPS swap kubernetes.io/service-name together.
-	directEPSFailoverPredicate := predicate.Funcs{
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			lbls := e.ObjectNew.GetLabels()
-			if lbls[forge.IndirectEndpointSliceLabelKey] == "true" {
-				return false
-			}
-			if lbls[consts.ManagedByLabelKey] != consts.ManagedByShadowEndpointSliceValue {
-				return false
-			}
-			oldA := e.ObjectOld.GetAnnotations()[consts.DirectConnectionFailoverAnnotation]
-			newA := e.ObjectNew.GetAnnotations()[consts.DirectConnectionFailoverAnnotation]
-			return oldA != newA
-		},
-		CreateFunc:  func(_ event.CreateEvent) bool { return false },
-		DeleteFunc:  func(_ event.DeleteEvent) bool { return false },
-		GenericFunc: func(_ event.GenericEvent) bool { return false },
-	}
-
 	return ctrl.NewControllerManagedBy(mgr).Named(consts.CtrlShadowEndpointSlice).
 		For(&offloadingv1beta1.ShadowEndpointSlice{}).
 		Owns(&discoveryv1.EndpointSlice{}).
 		Watches(&liqov1beta1.ForeignCluster{},
 			r.getForeignClusterEventHandler(ctx), builder.WithPredicates(fcPredicates)).
-		Watches(&discoveryv1.EndpointSlice{},
-			r.getDirectEPSFailoverHandler(),
-			builder.WithPredicates(directEPSFailoverPredicate)).
+		// Direct-connections failover: re-enqueue the involved slices when the status of a
+		// Connection towards another provider changes (see connection_watches.go).
+		Watches(&networkingv1beta1.Connection{},
+			r.getConnectionEventHandler(),
+			builder.WithPredicates(connectionStatusChangedPredicate())).
 		WithOptions(controller.Options{MaxConcurrentReconciles: workers}).
 		Complete(r)
-}
-
-// removeDirectConnectionAnnotation returns a copy of annotations without direct-connection data.
-func removeDirectConnectionAnnotation(annotations map[string]string) map[string]string {
-	if annotations == nil {
-		return nil
-	}
-	filtered := maps.Clone(annotations)
-	delete(filtered, consts.DirectConnectionDataAnnotationKey)
-	return filtered
 }

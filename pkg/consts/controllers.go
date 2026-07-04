@@ -75,7 +75,6 @@ const (
 	CtrlShadowEndpointSlice = "shadowendpointslice"
 	CtrlShadowPod           = "shadowpod"
 	CtrlVirtualNode         = "virtualnode"
-	CtrlConnectionFailover  = "connection_failover"
 
 	// Cross modules.
 	CtrlResourceSliceQuotaCreator = "resourceslice_quotacreator"

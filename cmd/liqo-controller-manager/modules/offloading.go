@@ -31,7 +31,6 @@ import (
 	liqov1beta1 "github.com/liqotech/liqo/apis/core/v1beta1"
 	"github.com/liqotech/liqo/pkg/consts"
 	liqocontrollermanager "github.com/liqotech/liqo/pkg/liqo-controller-manager"
-	connfailoverctrl "github.com/liqotech/liqo/pkg/liqo-controller-manager/offloading/connection-failover-controller"
 	mapsctrl "github.com/liqotech/liqo/pkg/liqo-controller-manager/offloading/namespacemap-controller"
 	nsoffctrl "github.com/liqotech/liqo/pkg/liqo-controller-manager/offloading/namespaceoffloading-controller"
 	nodefailurectrl "github.com/liqotech/liqo/pkg/liqo-controller-manager/offloading/nodefailure-controller"
@@ -129,19 +128,11 @@ func SetupOffloadingModule(ctx context.Context, mgr manager.Manager, opts *Offlo
 	shadowEpsReconciler := &shadowepsctrl.Reconciler{
 		Client:                mgr.GetClient(),
 		Scheme:                mgr.GetScheme(),
+		Recorder:              mgr.GetEventRecorderFor("shadowendpointslice-controller"),
 		DenyDirectConnections: opts.DenyDirectConnections,
 	}
 	if err = shadowEpsReconciler.SetupWithManager(ctx, mgr, opts.ShadowEndpointSliceWorkers); err != nil {
 		klog.Errorf("Unable to setup the shadowendpointslice reconciler: %v", err)
-		return err
-	}
-
-	connFailoverReconciler := &connfailoverctrl.Reconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
-	if err = connFailoverReconciler.SetupWithManager(ctx, mgr, opts.ShadowEndpointSliceWorkers); err != nil {
-		klog.Errorf("Unable to setup the connection-failover reconciler: %v", err)
 		return err
 	}
 

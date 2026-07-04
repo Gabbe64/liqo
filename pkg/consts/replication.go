@@ -106,10 +106,4 @@ const (
 	// UseDirectConnectionAnnotationKey is the annotation key set on a Service in the consumer cluster to
 	// request the use of direct connections between provider clusters for the service endpoints.
 	UseDirectConnectionAnnotationKey = "liqo.io/use-direct-connections"
-
-	// DirectConnectionFailoverAnnotation is the annotation key set on an EndpointSlice by the connection
-	// failover controller when the direct provider-to-provider Connection is down. While this annotation is
-	// present the ShadowEndpointSlice controller skips reconciliation for that EPS, preserving the
-	// hub-and-spoke (indirect) addresses that the failover controller has patched in.
-	DirectConnectionFailoverAnnotation = "liqo.io/direct-connection-failover"
 )

@@ -406,6 +406,11 @@ var _ = Describe("EndpointSlice Reflection Tests", func() {
 					}}
 					CreateEndpointSlice(&local)
 
+					// The direct ShadowEPS carries the untranslated IP, but the indirect (hub-and-spoke)
+					// companion still needs the IPAM-remapped address, so the corresponding IP resource
+					// must exist — exactly as it would in a real converged cluster.
+					CreateIP("ip-third", LocalNamespace, "10.10.0.5", "192.168.200.5")
+
 					CreateService(&corev1.Service{
 						ObjectMeta: metav1.ObjectMeta{
 							Name: ServiceName, Namespace: LocalNamespace,
@@ -432,6 +437,28 @@ var _ = Describe("EndpointSlice Reflection Tests", func() {
 					remoteAfter := GetShadowEndpointSlice(RemoteNamespace)
 					Expect(remoteAfter.Spec.Template.Endpoints).To(HaveLen(1))
 					Expect(remoteAfter.Spec.Template.Endpoints[0].Addresses).To(ContainElement("10.10.0.5"))
+				})
+				It("the indirect companion should stay bound to the service and be marked as indirect", func() {
+					indirect, errIndirect := liqoClient.OffloadingV1beta1().ShadowEndpointSlices(RemoteNamespace).
+						Get(ctx, EndpointSliceName+forge.IndirectEndpointSliceSuffix, metav1.GetOptions{})
+					Expect(errIndirect).ToNot(HaveOccurred())
+					Expect(indirect.Labels).To(HaveKeyWithValue(discoveryv1.LabelServiceName, ServiceName))
+					Expect(indirect.Labels).To(HaveKeyWithValue(forge.IndirectEndpointSliceLabelKey, "true"))
+				})
+				It("the indirect companion should carry the direct-connections data annotation", func() {
+					indirect, errIndirect := liqoClient.OffloadingV1beta1().ShadowEndpointSlices(RemoteNamespace).
+						Get(ctx, EndpointSliceName+forge.IndirectEndpointSliceSuffix, metav1.GetOptions{})
+					Expect(errIndirect).ToNot(HaveOccurred())
+					Expect(indirect.Annotations).To(HaveKeyWithValue(
+						consts.DirectConnectionDataAnnotationKey,
+						GetShadowEndpointSlice(RemoteNamespace).Annotations[consts.DirectConnectionDataAnnotationKey]))
+				})
+				It("the indirect companion should carry the IPAM-translated address", func() {
+					indirect, errIndirect := liqoClient.OffloadingV1beta1().ShadowEndpointSlices(RemoteNamespace).
+						Get(ctx, EndpointSliceName+forge.IndirectEndpointSliceSuffix, metav1.GetOptions{})
+					Expect(errIndirect).ToNot(HaveOccurred())
+					Expect(indirect.Spec.Template.Endpoints).To(HaveLen(1))
+					Expect(indirect.Spec.Template.Endpoints[0].Addresses).To(ContainElement("192.168.200.5"))
 				})
 			})
 

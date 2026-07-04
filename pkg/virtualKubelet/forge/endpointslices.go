@@ -36,8 +36,7 @@ const (
 	IndirectEndpointSliceSuffix = "-indirect"
 
 	// IndirectEndpointSliceLabelKey is the label key used to mark an indirect ShadowEndpointSlice (and the
-	// resulting EndpointSlice). The indirect EPS carries IPAM-remapped addresses and intentionally does NOT
-	// have the kubernetes.io/service-name label, so kube-proxy on the provider cluster does not use it.
+	// resulting EndpointSlice).
 	IndirectEndpointSliceLabelKey = "liqo.io/indirect-endpointslice"
 )
 
@@ -109,11 +108,11 @@ func RemoteShadowEndpointSlice(local *discoveryv1.EndpointSlice, remote *offload
 // RemoteIndirectShadowEndpointSlice forges the indirect ShadowEndpointSlice companion for a local EndpointSlice
 // when the associated Service is annotated with consts.UseDirectConnectionAnnotationKey (direct connections enabled).
 //
-// The indirect ShadowEndpointSlice carries IPAM-remapped endpoint addresses and is intentionally
-// NOT bound to the Service in the provider cluster: the kubernetes.io/service-name label is removed so that
-// kube-proxy does not route traffic through it. The resulting EndpointSlice is available for inspection but
-// not in active use by the Service. It is used as a fallback mechanism to ensure connectivity when direct connections are
-// enabled, but the connection between provider clusters is down or not working properly. 
+// The indirect ShadowEndpointSlice carries the same endpoints as the direct one, but translated like
+// a plain reflected EndpointSlice (the hub-and-spoke path through the consumer), whereas the direct
+// one carries them untranslated, deferring the remapping to the provider. 
+// Which slice of the pair actually serves traffic is decided on
+// the provider by the ShadowEndpointSlice controller.
 func RemoteIndirectShadowEndpointSlice(local *discoveryv1.EndpointSlice, remote *offloadingv1beta1.ShadowEndpointSlice,
 	localNodeClient corev1listers.NodeLister, targetNamespace string, translator EndpointTranslator,
 	forgingOpts *ForgingOpts) *offloadingv1beta1.ShadowEndpointSlice {
@@ -125,9 +124,7 @@ func RemoteIndirectShadowEndpointSlice(local *discoveryv1.EndpointSlice, remote 
 	objectMeta := RemoteEndpointSliceObjectMeta(&local.ObjectMeta, &remote.ObjectMeta, forgingOpts)
 	// Override the name with the indirect suffix.
 	objectMeta.Name = indirectName
-	// Remove the service-name label so the resulting EndpointSlice is not used by the Service.
-	delete(objectMeta.Labels, discoveryv1.LabelServiceName)
-	// Add a marker label to identify this as an indirect (not-in-service) EndpointSlice.
+	// Add a marker label to identify this as the indirect companion of a direct EndpointSlice.
 	objectMeta.Labels[IndirectEndpointSliceLabelKey] = "true"
 
 	return &offloadingv1beta1.ShadowEndpointSlice{
