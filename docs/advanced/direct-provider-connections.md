@@ -33,6 +33,12 @@ The following must be in place before enabling direct connections for a Service:
 The network peering between P1 and P2 can be established with [`liqoctl network connect`](/advanced/peering/inter-cluster-network.md#setup-the-inter-cluster-network-via-liqoctl-network-command), which sets up only the networking module without requiring mutual API server access for offloading.
 ```
 
+```{admonition} Networking-disabled consumer peerings
+Direct connections also work when the peerings between the consumer and the providers are established with **networking disabled** (`liqoctl peer --networking-disabled`): the direct P1↔P2 link is the only data path required for the annotated Services, making this the natural fit for topologies where the consumer only coordinates workloads without joining the data plane.
+
+Keep in mind that in this topology the fallback path through the consumer does not exist: if the direct connection goes down, the endpoints of the annotated Services are unreachable until it recovers (see [Failover and fallback](#failover-and-fallback)).
+```
+
 ## Topology
 
 The simplest topology (picture above) that benefits from this feature involves one consumer and two providers.
@@ -44,14 +50,10 @@ The feature generalises naturally to any number of providers: as long as a direc
 
 ## Service and EndpointSlice replication
 
-As part of the standard [resource reflection](/usage/reflection.md) process, Liqo automatically replicates into each provider cluster every Service that exists in an offloaded namespace.
-This means that a Service created in the consumer cluster (C) is propagated to both P1 and P2, so that pods on either provider can access it by name, exactly as they would with any local Service.
+As part of the standard [resource reflection](/usage/reflection.md) process, Liqo automatically replicates into each provider cluster every Service that exists in an offloaded namespace, together with its `EndpointSlices`.
+Since each provider only sees the pods running locally, Liqo fills in the endpoints hosted on the other clusters, so that the Service is reachable from every provider exactly as any local Service.
 
-Along with the Service, Liqo reflects the associated `EndpointSlices`: because each provider cluster only sees the pods running locally, it cannot build a complete picture of the Service endpoints on its own.
-The consumer's VirtualKubelet fills this gap by propagating the missing entries, with pod IPs remapped to addresses reachable from the destination cluster.
-
-When a Service is annotated to use direct connections, this remapping step is adjusted for its cross-provider endpoints: instead of translating IPs through the consumer's network Configuration, Liqo uses the P1↔P2 network Configuration so that each provider can reach the other's pods through the direct link.
-In addition, Liqo keeps a fallback copy of the endpoints reachable through the consumer, so that the Service continues to work even when the direct link is unavailable (see [Failover and fallback](#failover-and-fallback)).
+For Services annotated to use direct connections, Liqo additionally keeps an indirect copy of the cross-provider endpoints, marked as not ready: it takes over to keep the Service working in case the direct connection goes down (see [Failover and fallback](#failover-and-fallback)).
 
 ## Enabling direct connections for a Service
 
@@ -68,11 +70,14 @@ spec:
   ...
 ```
 
-When this annotation is present, the Liqo VirtualKubelet in the consumer cluster collects, for each `EndpointSlice` of that Service, the pod IPs belonging to *other* provider clusters (i.e., providers different from the one being reflected to), along with the cluster ID of each pod.
-This mapping is embedded as an annotation (`liqo.io/direct-connections-data`) on the `ShadowEndpointSlice` that is sent to each provider.
+```{warning}
+Direct connections are not compatible with Services that set `publishNotReadyAddresses: true`.
+Liqo steers traffic between the direct and the fallback path through the *ready* condition of the endpoints, and such Services instruct Kubernetes to route to endpoints regardless of their readiness — so traffic would reach both paths at once, including one that may be unavailable.
+```
 
-On the provider side, the `ShadowEndpointSlice` controller reads this data and re-maps those pod IPs using the network Configuration of the direct P1↔P2 peering, instead of using the consumer's network mapping.
-This ensures that the `EndpointSlice` entries seen by pods on P1 contain the correctly translated addresses for pods running on P2, and the other way around.
+When this annotation is present, Liqo collects, for each `EndpointSlice`, some data needed to make direct connections work.
+This data is then embedded as an annotation (`liqo.io/direct-connections-data`) on the `ShadowEndpointSlice` that is sent to each provider, where the `ShadowEndpointSlice` controller consumes this data.
+
 
 ```{admonition} Note
 The annotation `liqo.io/direct-connections-data` is internal to Liqo. It is written automatically on `ShadowEndpointSlice` objects and is stripped before the final `EndpointSlice` is written on the provider cluster. You do not need to manage it manually.
@@ -83,6 +88,8 @@ The annotation `liqo.io/direct-connections-data` is internal to Liqo. It is writ
 Direct connections do not make a Service depend on the health of the provider-to-provider link.
 If the direct connection between two providers goes down, traffic towards the affected endpoints **automatically fails over** to the standard path through the consumer cluster, and switches back to the direct link once the connection recovers.
 No user action is required, and the Service never loses its endpoints.
+
+Note that the fallback path exists only when the consumer peerings have the networking module enabled: with [networking-disabled peerings](#prerequisites), the direct link is the only route between the providers, and its endpoints stay unavailable until the connection recovers.
 
 ```{admonition} Note
 On the provider clusters, Liqo maintains the fallback endpoints in a companion `EndpointSlice` whose name ends with `-indirect`. Only one of the two slices serves traffic at any time: seeing the other one with endpoints marked not ready is expected, not a symptom of a problem.
