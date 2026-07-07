@@ -34,7 +34,7 @@ The network peering between P1 and P2 can be established with [`liqoctl network 
 ```
 
 ```{admonition} Networking-disabled consumer peerings
-Direct connections also work when the peerings between the consumer and the providers are established with **networking disabled** (`liqoctl peer --networking-disabled`): the direct P1↔P2 link is the only data path required for the annotated Services, making this the natural fit for topologies where the consumer only coordinates workloads without joining the data plane.
+Direct connections also work when the peerings between the consumer and the providers are established with [networking disabled](/advanced/use-only-offloading.md) (`liqoctl peer --networking-disabled`): the direct P1↔P2 link is the only data path required for the annotated Services, making this the natural fit for topologies where the consumer only coordinates workloads without joining the data plane.
 
 Keep in mind that in this topology the fallback path through the consumer does not exist: if the direct connection goes down, the endpoints of the annotated Services are unreachable until it recovers (see [Failover and fallback](#failover-and-fallback)).
 ```
