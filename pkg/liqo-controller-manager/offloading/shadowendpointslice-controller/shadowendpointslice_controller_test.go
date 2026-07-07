@@ -24,7 +24,6 @@ import (
 	. "github.com/onsi/gomega/gstruct"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -80,9 +79,6 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 		fakeClient            client.WithWatch
 		denyDirectConnections bool
 		recorder              *capturingRecorder
-		// wantReconcileErr marks specs where Reconcile is expected to fail (e.g. the never-peered
-		// misconfiguration, which stops the reconcile with an error by design).
-		wantReconcileErr bool
 
 		testShadowEps *offloadingv1beta1.ShadowEndpointSlice
 		testEps       *discoveryv1.EndpointSlice
@@ -242,7 +238,6 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 		ctx = context.TODO()
 		buffer = &bytes.Buffer{}
 		denyDirectConnections = false
-		wantReconcileErr = false
 		recorder = &capturingRecorder{FakeRecorder: record.NewFakeRecorder(100)}
 		klog.SetOutput(buffer)
 	})
@@ -258,11 +253,7 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 		if errors.CheckFakeClientServerSideApplyError(err) {
 			Skip("Skipping test due to fake client server-side apply error")
 		}
-		if wantReconcileErr {
-			Expect(err).To(HaveOccurred())
-		} else {
-			Expect(err).NotTo(HaveOccurred())
-		}
+		Expect(err).NotTo(HaveOccurred())
 		klog.Flush()
 	})
 
@@ -785,25 +776,39 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 		}
 
 		When("the slice is direct", func() {
+			// The fixture slice is mixed: 10.20.0.1 depends on the direct provider (listed in the
+			// annotation, translated to 10.30.0.1 through its Configuration), while 10.99.0.9 is
+			// path-independent (e.g. hosted on the consumer) and must never be affected by the
+			// state of the direct connections.
 			build := func(objs ...client.Object) {
 				objs = append(objs,
-					newShadowEpsWithRole(false, directAnnotation("10.20.0.1"), "10.20.0.1"),
+					newShadowEpsWithRole(false, directAnnotation("10.20.0.1"), "10.20.0.1", "10.99.0.9"),
 					newFcNetworkingDisabled(), newDirectProviderConf())
 				fakeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(objs...).Build()
 			}
 
+			// expectReadiness asserts the exact set of endpoint addresses and their Ready values.
+			expectReadiness := func(want map[string]bool) {
+				eps := discoveryv1.EndpointSlice{}
+				Expect(fakeClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
+				got := map[string]bool{}
+				for i := range eps.Endpoints {
+					got[eps.Endpoints[i].Addresses[0]] = *eps.Endpoints[i].Conditions.Ready
+				}
+				Expect(got).To(Equal(want))
+			}
+
 			When("the direct connection is established", func() {
 				BeforeEach(func() { build(newConnection(networkingv1beta1.Connected)) })
-				It("endpoints should be ready", func() { expectEndpointsReady(true) })
+				It("all endpoints should be ready (direct one translated)", func() {
+					expectReadiness(map[string]bool{"10.30.0.1": true, "10.99.0.9": true})
+				})
 			})
 
 			When("the direct connection is in error", func() {
 				BeforeEach(func() { build(newConnection(networkingv1beta1.ConnectionError)) })
-				It("endpoints should be not ready (failover active)", func() { expectEndpointsReady(false) })
-				It("should keep the translated direct address (failover flips readiness only, no address churn)", func() {
-					eps := discoveryv1.EndpointSlice{}
-					Expect(fakeClient.Get(ctx, req.NamespacedName, &eps)).To(Succeed())
-					Expect(eps.Endpoints[0].Addresses).To(ConsistOf("10.30.0.1"))
+				It("only the direct endpoint should turn not ready, translated address kept (no churn)", func() {
+					expectReadiness(map[string]bool{"10.30.0.1": false, "10.99.0.9": true})
 				})
 				It("should not raise a misconfiguration event (the connection exists, just down)", func() {
 					Expect(recorder.Events).ToNot(Receive())
@@ -811,19 +816,13 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 			})
 
 			When("the direct connection does not exist", func() {
-				// Never-peered misconfiguration: the reconcile stops with an error by design, after
-				// surfacing the problem, and materializes no EndpointSlice.
-				BeforeEach(func() {
-					wantReconcileErr = true
-					build()
-				})
+				// Never-peered misconfiguration: the reconcile completes, materializing the slice
+				// WITHOUT the endpoints of the unpeered cluster (their hub copies in the indirect
+				// companion serve the traffic), and surfaces the problem with an event.
+				BeforeEach(func() { build() })
 
-				It("should stop the reconcile with a not-peered error", func() {
-					Expect(err).To(MatchError(ContainSubstring("no direct network peering")))
-				})
-				It("should not create the endpointslice", func() {
-					eps := discoveryv1.EndpointSlice{}
-					Expect(apierrors.IsNotFound(fakeClient.Get(ctx, req.NamespacedName, &eps))).To(BeTrue())
+				It("should exclude the unpeered endpoints and keep path-independent ones ready", func() {
+					expectReadiness(map[string]bool{"10.99.0.9": true})
 				})
 				It("should raise a misconfiguration event naming the unpeered cluster", func() {
 					Expect(recorder.Events).To(Receive(SatisfyAll(
@@ -863,9 +862,8 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 						})
 					})
 
-					It("should delete it, so no stale direct address keeps receiving traffic", func() {
-						eps := discoveryv1.EndpointSlice{}
-						Expect(apierrors.IsNotFound(fakeClient.Get(ctx, req.NamespacedName, &eps))).To(BeTrue())
+					It("should flush the stale direct address, keeping the path-independent endpoints", func() {
+						expectReadiness(map[string]bool{"10.99.0.9": true})
 					})
 				})
 			})
@@ -874,14 +872,15 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 				BeforeEach(func() {
 					denyDirectConnections = true
 					// No Configuration for the direct provider exists either: denying must not
-					// attempt any remapping through it in the first place.
+					// attempt any remapping through it in the first place (the direct endpoint
+					// stays untranslated and permanently not-ready).
 					fakeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(
-						newShadowEpsWithRole(false, directAnnotation("10.20.0.1"), "10.20.0.1"),
+						newShadowEpsWithRole(false, directAnnotation("10.20.0.1"), "10.20.0.1", "10.99.0.9"),
 						newFcNetworkingDisabled(), newConnection(networkingv1beta1.Connected)).Build()
 				})
 
-				It("should keep the endpoint present but not ready", func() {
-					expectEndpointsReady(false)
+				It("should keep the direct endpoint present but not ready, path-independent ones ready", func() {
+					expectReadiness(map[string]bool{"10.20.0.1": false, "10.99.0.9": true})
 				})
 				It("should not raise a misconfiguration event (denying is an explicit operator choice)", func() {
 					Expect(recorder.Events).ToNot(Receive())
@@ -894,20 +893,15 @@ var _ = Describe("ShadowEndpointSlice Controller", func() {
 					// direct connections; requires its own Configuration, unrelated to the direct
 					// peer). No Configuration and no Connection exist at all for the direct peer:
 					// P1 and P2 were simply never network-peered together.
-					wantReconcileErr = true
 					fakeClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(
 						newShadowEpsWithRole(false, directAnnotation("10.20.0.1"), "10.20.0.1"),
 						newFc(true, true), newConfiguration(false)).Build()
 				})
 
-				It("should stop with a not-peered error before attempting the impossible translation", func() {
+				It("should reconcile without error, excluding the untranslatable endpoints", func() {
 					// The remap through the nonexistent Configuration would fail with an opaque
-					// NotFound: the misconfiguration check must fire first with a clearer error.
-					Expect(err).To(MatchError(ContainSubstring("no direct network peering")))
-				})
-				It("should not create the endpointslice", func() {
-					eps := discoveryv1.EndpointSlice{}
-					Expect(apierrors.IsNotFound(fakeClient.Get(ctx, req.NamespacedName, &eps))).To(BeTrue())
+					// NotFound: the not-peered endpoints must be excluded before translation.
+					expectReadiness(map[string]bool{})
 				})
 				It("should raise a misconfiguration event naming the unpeered cluster", func() {
 					Expect(recorder.Events).To(Receive(SatisfyAll(

@@ -108,14 +108,19 @@ func RemoteShadowEndpointSlice(local *discoveryv1.EndpointSlice, remote *offload
 // RemoteIndirectShadowEndpointSlice forges the indirect ShadowEndpointSlice companion for a local EndpointSlice
 // when the associated Service is annotated with consts.UseDirectConnectionAnnotationKey (direct connections enabled).
 //
-// The indirect ShadowEndpointSlice carries the same endpoints as the direct one, but translated like
-// a plain reflected EndpointSlice (the hub-and-spoke path through the consumer), whereas the direct
-// one carries them untranslated, deferring the remapping to the provider. 
+// The indirect ShadowEndpointSlice carries only the endpoints hosted on OTHER provider clusters
+// (directEndpoints, the same subset the direct-connections data refers to), translated like a
+// plain reflected EndpointSlice (the hub-and-spoke path through the consumer), whereas the direct
+// slice carries them untranslated, deferring the remapping to the provider. Endpoints with a
+// single representation (e.g. consumer-hosted ones, whose hub form is the address itself) appear
+// in the direct slice only.
 // Which slice of the pair actually serves traffic is decided on
 // the provider by the ShadowEndpointSlice controller.
-func RemoteIndirectShadowEndpointSlice(local *discoveryv1.EndpointSlice, remote *offloadingv1beta1.ShadowEndpointSlice,
-	localNodeClient corev1listers.NodeLister, targetNamespace string, translator EndpointTranslator,
+func RemoteIndirectShadowEndpointSlice(local *discoveryv1.EndpointSlice, directEndpoints []discoveryv1.Endpoint,
+	remote *offloadingv1beta1.ShadowEndpointSlice, localNodeClient corev1listers.NodeLister,
+	targetNamespace string, translator EndpointTranslator,
 	forgingOpts *ForgingOpts) *offloadingv1beta1.ShadowEndpointSlice {
+	
 	indirectName := local.GetName() + IndirectEndpointSliceSuffix
 	if remote == nil {
 		remote = &offloadingv1beta1.ShadowEndpointSlice{ObjectMeta: metav1.ObjectMeta{Name: indirectName, Namespace: targetNamespace}}
@@ -132,7 +137,7 @@ func RemoteIndirectShadowEndpointSlice(local *discoveryv1.EndpointSlice, remote 
 		Spec: offloadingv1beta1.ShadowEndpointSliceSpec{
 			Template: offloadingv1beta1.EndpointSliceTemplate{
 				AddressType: local.AddressType,
-				Endpoints:   RemoteEndpointSliceEndpoints(local.Endpoints, localNodeClient, translator),
+				Endpoints:   RemoteEndpointSliceEndpoints(directEndpoints, localNodeClient, translator),
 				Ports:       RemoteEndpointSlicePorts(local.Ports),
 			},
 		},

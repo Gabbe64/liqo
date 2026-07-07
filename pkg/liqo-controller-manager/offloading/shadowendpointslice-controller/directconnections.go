@@ -22,8 +22,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,10 +32,12 @@ import (
 	"github.com/liqotech/liqo/pkg/virtualKubelet/forge"
 )
 
-// This file groups everything the controller does for the direct-connections feature: endpointslices of
-// Services annotated for direct connections come in pairs (a direct slice carrying the
-// provider-to-provider addresses and an -indirect companion carrying the hub-and-spoke ones), and
-// only one member of the pair serves traffic at any time, selected through the endpoints' Ready conditions.
+// This file groups everything the controller does for the direct-connections feature: endpointslices
+// of Services annotated for direct connections come in pairs. The direct slice carries ALL the
+// endpoints (the ones reachable through provider-to-provider connections plus the path-independent
+// ones, e.g. hosted on the consumer); the -indirect companion carries only the hub-and-spoke copies
+// of the direct-connection endpoints. Readiness is computed per endpoint from the health of its
+// path.
 
 // EventReasonDirectConnectionNotPeered is used when a Service requests direct connections towards
 // providers that were never network-peered.
@@ -125,28 +125,63 @@ func (r *Reconciler) resolveDirectPath(ctx context.Context,
 	return dp, nil
 }
 
-// rejectNotPeered handles the never-peered misconfiguration for a direct slice, which cannot be
-// materialized correctly without the peering (there is no Configuration to translate the direct
-// addresses with, and no amount of waiting will create one). It surfaces the problem with a
-// Warning event, deletes the EndpointSlice previously materialized from this shadow if any.
-// The indirect companion is unaffected (it reconciles independently and its endpoints become ready since the direct path is not active),
-// so the Service keeps working through the consumer path in the meantime.
-func (r *Reconciler) rejectNotPeered(ctx context.Context, shadowEps *offloadingv1beta1.ShadowEndpointSlice,
-	notPeered *directconnection.NotPeeredError) error {
+// reportNotPeered surfaces the never-peered misconfiguration for a direct slice with a Warning
+// event and a log line. The reconcile continues: the endpoints depending on the unpeered
+// cluster(s) are excluded from the materialized slice (see dropEndpointsOfClusters), while their
+// hub copies in the indirect companion keep serving traffic through the consumer, so the Service
+// loses no backend. Recovery is level-triggered: the Connection created by 'liqoctl network
+// connect' retriggers the reconcile through the watch.
+func (r *Reconciler) reportNotPeered(ctx context.Context, shadowEps *offloadingv1beta1.ShadowEndpointSlice,
+	notPeered *directconnection.NotPeeredError) {
 	eventMsg := fmt.Sprintf("no direct network peering to clusters %v", notPeered.Clusters)
+	klog.Warningf("shadowendpointslice %q: %s", klog.KObj(shadowEps), eventMsg)
 	r.Recorder.Event(r.eventTargetFor(ctx, shadowEps), corev1.EventTypeWarning, EventReasonDirectConnectionNotPeered, eventMsg)
-
-	staleEps := discoveryv1.EndpointSlice{ObjectMeta: metav1.ObjectMeta{Name: shadowEps.Name, Namespace: shadowEps.Namespace}}
-	if err := r.Delete(ctx, &staleEps); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("failed to delete endpointslice for not-peered shadowendpointslice %q: %w", klog.KObj(shadowEps), err)
-	}
-
-	return fmt.Errorf("failed creating the endpointslice from shadowendpointslice %q: %w", klog.KObj(shadowEps), notPeered)
 }
 
-// eventTargetFor returns the object to record direct-connections events on: 
+// classifyEndpoints returns, for each endpoint, the ID of the direct cluster it depends on (the
+// one its address belongs to according to the direct-connections data), or the empty string for
+// path-independent endpoints (e.g. hosted on the consumer, or external): their reachability does
+// not depend on any provider-to-provider connection.
+//
+// It must run BEFORE the endpoints are translated, since the index matches the original addresses.
+func classifyEndpoints(endpoints []discoveryv1.Endpoint, index *directconnection.AddressIndex) []string {
+	clusters := make([]string, len(endpoints))
+	for i := range endpoints {
+		for _, addr := range endpoints[i].Addresses {
+			if clusterID, found := index.LookupClusterID(addr); found {
+				clusters[i] = clusterID
+				break
+			}
+		}
+	}
+	return clusters
+}
+
+// dropEndpointsOfClusters filters out (in lockstep from both parallel slices) the endpoints that
+// depend on one of the given clusters. Used for the never-peered case: those endpoints cannot be
+// translated (no Configuration exists towards their cluster) nor reached directly, and dropping
+// them also flushes the stale addresses of a previously working slice after an un-peering.
+func dropEndpointsOfClusters(endpoints []discoveryv1.Endpoint, epClusters, toDrop []string) ([]discoveryv1.Endpoint, []string) {
+	dropSet := make(map[string]struct{}, len(toDrop))
+	for _, c := range toDrop {
+		dropSet[c] = struct{}{}
+	}
+
+	filtered := make([]discoveryv1.Endpoint, 0, len(endpoints))
+	filteredClusters := make([]string, 0, len(epClusters))
+	for i := range endpoints {
+		if _, drop := dropSet[epClusters[i]]; drop {
+			continue
+		}
+		filtered = append(filtered, endpoints[i])
+		filteredClusters = append(filteredClusters, epClusters[i])
+	}
+	return filtered, filteredClusters
+}
+
+// eventTargetFor returns the object to record direct-connections events on:
 // the reflected Service the slice belongs to, so that the event is propagated back also to the
-// consumer cluster; 
+// consumer cluster;
 // or the ShadowEndpointSlice itself when the Service cannot be resolved.
 func (r *Reconciler) eventTargetFor(ctx context.Context, shadowEps *offloadingv1beta1.ShadowEndpointSlice) client.Object {
 	svcName := shadowEps.Labels[discoveryv1.LabelServiceName]
@@ -161,46 +196,57 @@ func (r *Reconciler) eventTargetFor(ctx context.Context, shadowEps *offloadingv1
 	return &svc
 }
 
-// computeEndpointsReady returns the Ready condition to apply to the endpoints of the slice:
-// besides the foreign cluster being healthy, at most one member of a direct/indirect pair is
-// ready at any time, according to the usability of the direct path.
-func computeEndpointsReady(dp *directPath, networkReady, apiServerReady bool) bool {
+// computeEndpointReady returns the Ready condition to apply to a single endpoint. The rule:
+// readiness depends on the health of the PATH the endpoint is reached through, not on the slice
+// it sits in. Path-independent endpoints (consumer-hosted, external) follow only the ordinary
+// conditions; endpoints reached through a direct connection are ready only while it is usable;
+// their hub copies in the indirect companion only when it is not (so that, per logical backend,
+// exactly one representation is active at any time).
+func computeEndpointReady(dp *directPath, endpointCluster string, networkReady, apiServerReady bool) bool {
 	// Endpoints are ready only if both the tunnel endpoint and the API server of the foreign
 	// cluster (the consumer the slice was reflected from) are ready.
 	ready := networkReady && apiServerReady
 
 	switch {
-	case dp.isDirect():
-		// The direct slice serves traffic only while the direct path is fully usable (the
-		// never-peered case does not reach this point: the reconcile stopped earlier and no
-		// slice is materialized at all).
-		return ready && dp.state == directPathActive
-
 	case dp.isIndirect && len(dp.data.Clusters) == 0:
-		// Companion without direct-connections data: none of the endpoints of this slice runs on
-		// a directly-connected provider, so the direct member of the pair is a plain slice
-		// carrying the exact same endpoints, ready under the ordinary conditions. Keep the
-		// companion not-ready to avoid duplicating them.
+		// Companion without direct-connections data (only produced by older virtual kubelets,
+		// which replicated every endpoint): fully overlapping with the direct member of the
+		// pair, keep it not-ready to avoid duplicating the endpoints.
 		return false
 
 	case dp.isIndirect:
-		// The indirect companion serves traffic whenever the direct path is not usable (down,
-		// not peered, or denied), falling back to the hub-and-spoke path through the consumer.
+		// Hub copy of a direct-connection endpoint: serves traffic whenever the direct path is
+		// not usable (down, not peered, or denied), falling back through the consumer.
 		return ready && dp.state != directPathActive
 
+	case endpointCluster != "":
+		// Direct-connection endpoint on the direct slice: ready only while the direct path is
+		// fully usable.
+		return ready && dp.state == directPathActive
+
 	default:
+		// Path-independent endpoint (consumer-hosted, external) or plain slice: its
+		// reachability never depended on the provider-to-provider connections.
 		return ready
 	}
 }
 
-// applyReadiness applies the computed Ready condition to the endpoints.
+// applyEndpointsReadiness computes and applies the Ready condition to each endpoint.
+// epClusters is the parallel classification from classifyEndpoints (nil for non-direct slices:
+// all endpoints are then treated as path-independent or ruled by the indirect cases).
 //
 // Note: an endpoint is updated only if its Ready condition is True or nil, i.e. if the foreign
 // cluster sets the endpoint condition Ready to False (the backing pod is failing its readiness
-// probe at the origin), the local condition stays False regardless of the computed value: a
-// failover must never resurrect an endpoint that is unhealthy at the origin.
-func applyReadiness(endpoints []discoveryv1.Endpoint, ready bool) {
+// probe at the origin).
+func applyEndpointsReadiness(endpoints []discoveryv1.Endpoint, epClusters []string, dp *directPath,
+	networkReady, apiServerReady bool) {
 	for i := range endpoints {
+		cluster := ""
+		if epClusters != nil {
+			cluster = epClusters[i]
+		}
+		ready := computeEndpointReady(dp, cluster, networkReady, apiServerReady)
+
 		endpoint := &endpoints[i]
 		if endpoint.Conditions.Ready == nil || *endpoint.Conditions.Ready {
 			endpoint.Conditions.Ready = &ready

@@ -106,23 +106,30 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	apiServerReady := foreigncluster.IsAPIServerReadyOrDisabled(fc)
 
 	// Classify the slice with respect to the direct-connections feature and check the usability
-	// of the direct path its endpoints depend on (see directconnections.go).
+	// of the direct path of the endpoints in this shadoweps (see directconnections.go).
 	dp, err := r.resolveDirectPath(ctx, &shadowEps)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("shadowendpointslice %q: %w", nsName, err)
 	}
 
-	// Never-peered misconfiguration: the direct slice cannot be materialized correctly, so
-	// surface the problem and stop (the indirect companion keeps the Service working meanwhile).
-	if dp.isDirect() && dp.state == directPathNotPeered {
-		return ctrl.Result{}, r.rejectNotPeered(ctx, &shadowEps, dp.notPeered)
-	}
-
 	// Get the endpoints from the shadowendpointslice and remap them if necessary.
 	remappedEndpoints := shadowEps.Spec.Template.Endpoints
 
-	// Index of the addresses reachable through direct connections
+	// Index of the addresses reachable through direct connections, and per-endpoint
+	// classification (the direct cluster each endpoint depends on, "" if none). Classification
+	// must happen before the remapping below rewrites the addresses.
 	translationIndex := dp.data.BuildIndex()
+	var endpointClusters []string
+	if dp.isDirect() {
+		endpointClusters = classifyEndpoints(remappedEndpoints, translationIndex)
+	}
+
+	// Never-peered misconfiguration
+	if dp.isDirect() && dp.state == directPathNotPeered {
+		r.reportNotPeered(ctx, &shadowEps, dp.notPeered)
+		remappedEndpoints, endpointClusters = dropEndpointsOfClusters(remappedEndpoints, endpointClusters, dp.notPeered.Clusters)
+	}
+
 	if dp.isDirect() && dp.state == directPathDenied {
 		// Direct EndpointSlices can lack a matching Configuration when direct connections
 		// are denied, so disable translation to avoid remapping errors in this corner case.
@@ -157,10 +164,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		Ports:       shadowEps.Spec.Template.Ports,
 	}
 
-	// Update all endpoints' "Ready" conditions depending on the status of the foreign cluster
-	// and, for slices taking part in direct connections, on the usability of the direct path
-	endpointsReady := computeEndpointsReady(&dp, networkReady, apiServerReady)
-	applyReadiness(newEps.Endpoints, endpointsReady)
+	applyEndpointsReadiness(newEps.Endpoints, endpointClusters, &dp, networkReady, apiServerReady)
 
 	// Get existing endpointslice if it is already been created from the shadowendpointslice
 	var existingEps discoveryv1.EndpointSlice

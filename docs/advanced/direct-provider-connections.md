@@ -92,7 +92,7 @@ No user action is required, and the Service never loses its endpoints.
 Note that the fallback path exists only when the consumer peerings have the networking module enabled: with [networking-disabled peerings](#prerequisites), the direct link is the only route between the providers, and its endpoints stay unavailable until the connection recovers.
 
 ```{admonition} Note
-On the provider clusters, Liqo maintains the fallback endpoints in a companion `EndpointSlice` whose name ends with `-indirect`. Only one of the two slices serves traffic at any time: seeing the other one with endpoints marked not ready is expected, not a symptom of a problem.
+On the provider clusters, Liqo maintains the fallback copies of the cross-provider endpoints in a companion `EndpointSlice` whose name ends with `-indirect`. Each endpoint is active in exactly one of the two slices at any time: seeing the other copy marked not ready is expected, not a symptom of a problem.
 ```
 
 ## Troubleshooting: missing peering between providers
