@@ -34,9 +34,9 @@ The network peering between P1 and P2 can be established with [`liqoctl network 
 ```
 
 ```{admonition} Networking-disabled consumer peerings
-Direct connections also work when the peerings between the consumer and the providers are established with [networking disabled](/advanced/use-only-offloading.md) (`liqoctl peer --networking-disabled`): the direct P1↔P2 link is the only data path required for the annotated Services, making this the natural fit for topologies where the consumer only coordinates workloads without joining the data plane.
+Direct connections also work when the peerings between the consumer and the providers are established with networking disabled (`liqoctl peer --networking-disabled`): the direct P1↔P2 link is the only data path required for the annotated Services, making this the natural fit for topologies where the consumer only coordinates workloads without joining the data plane.
 
-Keep in mind that in this topology the fallback path through the consumer does not exist: if the direct connection goes down, the endpoints of the annotated Services are unreachable until it recovers (see [Failover and fallback](#failover-and-fallback)).
+Keep in mind that in this topology the fallback path through the consumer does not exist: if the direct connection goes down, the endpoints hosted on the other providers are unreachable until it recovers (see [Failover and fallback](#failover-and-fallback)).
 ```
 
 ## Topology
@@ -53,7 +53,7 @@ The feature generalises naturally to any number of providers: as long as a direc
 As part of the standard [resource reflection](/usage/reflection.md) process, Liqo automatically replicates into each provider cluster every Service that exists in an offloaded namespace, together with its `EndpointSlices`.
 Since each provider only sees the pods running locally, Liqo fills in the endpoints hosted on the other clusters, so that the Service is reachable from every provider exactly as any local Service.
 
-For Services annotated to use direct connections, Liqo additionally keeps an indirect copy of the cross-provider endpoints, marked as not ready: it takes over to keep the Service working in case the direct connection goes down (see [Failover and fallback](#failover-and-fallback)).
+For Services annotated to use direct connections, Liqo additionally keeps an indirect copy of the cross-provider endpoints, kept inactive while the direct link is healthy: it takes over to keep the Service working in case the direct connection goes down (see [Failover and fallback](#failover-and-fallback)).
 
 ## Enabling direct connections for a Service
 
@@ -119,7 +119,7 @@ networking:
   denyDirectConnections: true
 ```
 
-When this flag is set, the provider never routes traffic through the direct link: annotated Services keep working, but their cross-provider endpoints are always reached through the consumer cluster, exactly as if the annotation were not present.
+When this flag is set, the provider never routes traffic through the direct link: annotated Services keep working, but their cross-provider endpoints are always reached through the consumer cluster — the traffic behaves as if the annotation were not present.
 
 ```{admonition} Note
 Denying direct connections does not affect reachability — only the path the traffic takes. If you expect direct-link performance for a Service and observe traffic flowing through the consumer instead, check whether the provider sets this flag.
