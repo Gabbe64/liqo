@@ -23,6 +23,8 @@ rules:
 - apiGroups:
   - networking.liqo.io
   resources:
+  - vxlangatewayclienttemplates
+  - vxlangatewayservertemplates
   - wggatewayclienttemplates
   - wggatewayservertemplates
   verbs:

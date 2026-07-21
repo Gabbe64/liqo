@@ -29,10 +29,10 @@ import (
 	liqocontrollermanager "github.com/liqotech/liqo/pkg/liqo-controller-manager"
 	clientoperator "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/client-operator"
 	configuration "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/configuration"
-	fougatewaycontrollers "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/fou"
 	"github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/remapping"
 	externalnetworkroute "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/route"
 	serveroperator "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/server-operator"
+	vxlangatewaycontrollers "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/vxlan"
 	wggatewaycontrollers "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/wireguard"
 	internalclientcontroller "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/internal-network/client-controller"
 	internalconfigurationcontroller "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/internal-network/configuration-controller"
@@ -55,16 +55,16 @@ type NetworkingOption struct {
 	LiqoNamespace string
 	IpamClient    ipam.IPAMClient
 
-	GatewayServerResources          []string
-	GatewayClientResources          []string
-	WgGatewayServerClusterRoleName  string
-	WgGatewayClientClusterRoleName  string
-	FouGatewayServerClusterRoleName string
-	FouGatewayClientClusterRoleName string
-	NetworkWorkers                  int
-	IPWorkers                       int
-	FabricFullMasquerade            bool
-	GwmasqbypassEnabled             bool
+	GatewayServerResources            []string
+	GatewayClientResources            []string
+	WgGatewayServerClusterRoleName    string
+	WgGatewayClientClusterRoleName    string
+	VxlanGatewayServerClusterRoleName string
+	VxlanGatewayClientClusterRoleName string
+	NetworkWorkers                    int
+	IPWorkers                         int
+	FabricFullMasquerade              bool
+	GwmasqbypassEnabled               bool
 
 	GenevePort uint16
 }
@@ -79,16 +79,16 @@ func NewNetworkingOption(factory *dynamicutils.RunnableFactory, dynClient dynami
 		LiqoNamespace: opts.LiqoNamespace,
 		IpamClient:    ipamClient,
 
-		GatewayServerResources:          opts.GatewayServerResources.StringList,
-		GatewayClientResources:          opts.GatewayClientResources.StringList,
-		WgGatewayServerClusterRoleName:  opts.WgGatewayServerClusterRoleName,
-		WgGatewayClientClusterRoleName:  opts.WgGatewayClientClusterRoleName,
-		FouGatewayServerClusterRoleName: opts.FouGatewayServerClusterRoleName,
-		FouGatewayClientClusterRoleName: opts.FouGatewayClientClusterRoleName,
-		NetworkWorkers:                  opts.NetworkWorkers,
-		IPWorkers:                       opts.IPWorkers,
-		FabricFullMasquerade:            opts.FabricFullMasqueradeEnabled,
-		GwmasqbypassEnabled:             opts.GwmasqbypassEnabled,
+		GatewayServerResources:            opts.GatewayServerResources.StringList,
+		GatewayClientResources:            opts.GatewayClientResources.StringList,
+		WgGatewayServerClusterRoleName:    opts.WgGatewayServerClusterRoleName,
+		WgGatewayClientClusterRoleName:    opts.WgGatewayClientClusterRoleName,
+		VxlanGatewayServerClusterRoleName: opts.VxlanGatewayServerClusterRoleName,
+		VxlanGatewayClientClusterRoleName: opts.VxlanGatewayClientClusterRoleName,
+		NetworkWorkers:                    opts.NetworkWorkers,
+		IPWorkers:                         opts.IPWorkers,
+		FabricFullMasquerade:              opts.FabricFullMasqueradeEnabled,
+		GwmasqbypassEnabled:               opts.GwmasqbypassEnabled,
 
 		GenevePort: opts.GenevePort,
 	}
@@ -151,19 +151,19 @@ func SetupNetworkingModule(ctx context.Context, mgr manager.Manager, uncachedCli
 		return err
 	}
 
-	fouServerRec := fougatewaycontrollers.NewFouGatewayServerReconciler(mgr.GetClient(), mgr.GetScheme(),
-		mgr.GetEventRecorderFor("fou-gateway-server-controller"),
-		opts.FouGatewayServerClusterRoleName)
-	if err := fouServerRec.SetupWithManager(mgr); err != nil {
-		klog.Errorf("Unable to start the fouGatewayServerReconciler: %v", err)
+	vxlanServerRec := vxlangatewaycontrollers.NewGatewayServerReconciler(mgr.GetClient(), mgr.GetScheme(),
+		mgr.GetEventRecorderFor("vxlan-gateway-server-controller"),
+		opts.VxlanGatewayServerClusterRoleName)
+	if err := vxlanServerRec.SetupWithManager(mgr); err != nil {
+		klog.Errorf("Unable to start the vxlanGatewayServerReconciler: %v", err)
 		return err
 	}
 
-	fouClientRec := fougatewaycontrollers.NewFouGatewayClientReconciler(mgr.GetClient(), mgr.GetScheme(),
-		mgr.GetEventRecorderFor("fou-gateway-client-controller"),
-		opts.FouGatewayClientClusterRoleName)
-	if err := fouClientRec.SetupWithManager(mgr); err != nil {
-		klog.Errorf("Unable to start the fouGatewayClientReconciler: %v", err)
+	vxlanClientRec := vxlangatewaycontrollers.NewGatewayClientReconciler(mgr.GetClient(), mgr.GetScheme(),
+		mgr.GetEventRecorderFor("vxlan-gateway-client-controller"),
+		opts.VxlanGatewayClientClusterRoleName)
+	if err := vxlanClientRec.SetupWithManager(mgr); err != nil {
+		klog.Errorf("Unable to start the vxlanGatewayClientReconciler: %v", err)
 		return err
 	}
 

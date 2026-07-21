@@ -3,26 +3,26 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.3
-  name: fougatewayservertemplates.networking.liqo.io
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: vxlangatewayservertemplates.networking.liqo.io
 spec:
   group: networking.liqo.io
   names:
     categories:
     - liqo
-    kind: FouGatewayServerTemplate
-    listKind: FouGatewayServerTemplateList
-    plural: fougatewayservertemplates
+    kind: VxlanGatewayServerTemplate
+    listKind: VxlanGatewayServerTemplateList
+    plural: vxlangatewayservertemplates
     shortNames:
-    - fgst
-    - fougst
-    singular: fougatewayservertemplate
+    - vgst
+    - vxlangst
+    singular: vxlangatewayservertemplate
   scope: Namespaced
   versions:
   - name: v1beta1
     schema:
       openAPIV3Schema:
-        description: FouGatewayServerTemplate contains a template for a FOU gateway
+        description: VxlanGatewayServerTemplate contains a template for a VXLAN gateway
           server.
         properties:
           apiVersion:
@@ -43,8 +43,8 @@ spec:
           metadata:
             type: object
           spec:
-            description: FouGatewayServerTemplateSpec defines the desired state of
-              FouGatewayServerTemplate.
+            description: VxlanGatewayServerTemplateSpec defines the desired state
+              of VxlanGatewayServerTemplate.
             properties:
               objectKind:
                 description: ObjectKind specifies the kind of the object.

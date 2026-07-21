@@ -53,8 +53,8 @@ const (
 	CtrlPodInternalNet         = "pod_internalnet"
 	CtrlPublicKey              = "publickey"
 	CtrlRouteConfiguration     = "routeconfiguration"
-	CtrlFOUGatewayClient       = "fougatewayclient"
-	CtrlFOUGatewayServer       = "fougatewayserver"
+	CtrlVxlanGatewayClient     = "vxlangatewayclient"
+	CtrlVxlanGatewayServer     = "vxlangatewayserver"
 	CtrlWGGatewayClient        = "wggatewayclient"
 	CtrlWGGatewayServer        = "wggatewayserver"
 

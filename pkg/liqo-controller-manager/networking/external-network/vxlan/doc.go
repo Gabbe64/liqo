@@ -12,5 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package fou contains the logic to manage FOU gateway servers and clients.
-package fou
+// Package vxlan contains the controllers managing the lifecycle of the
+// VxlanGatewayServer and VxlanGatewayClient resources: the server exposes a
+// Service and publishes its endpoint in the status, while the client only
+// runs a deployment (it needs no inbound reachability, since the server
+// learns the client endpoint from the data plane).
+package vxlan

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package fou
+package vxlan
 
 import (
 	"context"
@@ -31,7 +31,7 @@ import (
 	"github.com/liqotech/liqo/pkg/gateway"
 )
 
-// podEnquerer maps a Pod event to a reconcile request for the FOU gateway that owns it.
+// podEnquerer maps a Pod event to a reconcile request for the VXLAN gateway that owns it.
 func podEnquerer(_ context.Context, obj client.Object) []ctrl.Request {
 	pod, ok := obj.(*corev1.Pod)
 	if !ok {
@@ -61,7 +61,7 @@ func podEnquerer(_ context.Context, obj client.Object) []ctrl.Request {
 }
 
 // clusterRoleBindingEnquerer maps a ClusterRoleBinding event to a reconcile request
-// for the FOU gateway that owns it.
+// for the VXLAN gateway that owns it.
 func clusterRoleBindingEnquerer(_ context.Context, obj client.Object) []ctrl.Request {
 	crb, ok := obj.(*rbacv1.ClusterRoleBinding)
 	if !ok {
@@ -88,36 +88,6 @@ func clusterRoleBindingEnquerer(_ context.Context, obj client.Object) []ctrl.Req
 			},
 		},
 	}
-}
-
-// forgeEndpointStatusLoadBalancer extracts the external endpoint from a LoadBalancer service.
-// It returns an error if no ingress address has been assigned yet.
-func forgeEndpointStatusLoadBalancer(svc *corev1.Service) (*networkingv1beta1.EndpointStatus, error) {
-	ingresses := svc.Status.LoadBalancer.Ingress
-	if len(ingresses) == 0 {
-		return nil, fmt.Errorf("LoadBalancer service %q/%q has no ingress addresses yet", svc.Namespace, svc.Name)
-	}
-
-	// Prefer IP over hostname.
-	addr := ingresses[0].IP
-	if addr == "" {
-		addr = ingresses[0].Hostname
-	}
-	if addr == "" {
-		return nil, fmt.Errorf("LoadBalancer service %q/%q ingress has neither IP nor hostname", svc.Namespace, svc.Name)
-	}
-
-	if len(svc.Spec.Ports) == 0 {
-		return nil, fmt.Errorf("LoadBalancer service %q/%q has no ports", svc.Namespace, svc.Name)
-	}
-	port := svc.Spec.Ports[0].Port
-	proto := corev1.ProtocolUDP
-
-	return &networkingv1beta1.EndpointStatus{
-		Addresses: []string{addr},
-		Port:      port,
-		Protocol:  &proto,
-	}, nil
 }
 
 // forgeInternalEndpointFromPods lists the active gateway pods in the given namespace and

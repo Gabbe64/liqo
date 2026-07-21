@@ -3,27 +3,27 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.3
-  name: fougatewayservers.networking.liqo.io
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: vxlangatewayservers.networking.liqo.io
 spec:
   group: networking.liqo.io
   names:
     categories:
     - liqo
-    kind: FouGatewayServer
-    listKind: FouGatewayServerList
-    plural: fougatewayservers
+    kind: VxlanGatewayServer
+    listKind: VxlanGatewayServerList
+    plural: vxlangatewayservers
     shortNames:
-    - fgs
-    - fougs
-    singular: fougatewayserver
+    - vgs
+    - vxlangs
+    singular: vxlangatewayserver
   scope: Namespaced
   versions:
   - name: v1beta1
     schema:
       openAPIV3Schema:
-        description: FouGatewayServer defines a FOU gateway server that will accept
-          connections from remote FOU gateway clients.
+        description: VxlanGatewayServer defines a VXLAN gateway server that will accept
+          connections from remote VXLAN gateway clients.
         properties:
           apiVersion:
             description: |-
@@ -43,7 +43,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: FouGatewayServerSpec defines the desired state of FouGatewayServer.
+            description: VxlanGatewayServerSpec defines the desired state of VxlanGatewayServer.
             properties:
               deployment:
                 description: Deployment specifies the deployment template for the
@@ -10417,7 +10417,7 @@ spec:
             - service
             type: object
           status:
-            description: FouGatewayServerStatus defines the observed state of FouGatewayServer.
+            description: VxlanGatewayServerStatus defines the observed state of VxlanGatewayServer.
             properties:
               endpoint:
                 description: Endpoint specifies the endpoint of the server.

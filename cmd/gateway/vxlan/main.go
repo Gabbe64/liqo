@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package fou contains the logic to configure the FOU tunnel runtime.
+// Package main is the entrypoint of the VXLAN tunnel runtime.
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -25,15 +26,17 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	networkingv1beta1 "github.com/liqotech/liqo/apis/networking/v1beta1"
 	"github.com/liqotech/liqo/pkg/gateway"
 	"github.com/liqotech/liqo/pkg/gateway/concurrent"
-	"github.com/liqotech/liqo/pkg/gateway/tunnel/fou"
+	"github.com/liqotech/liqo/pkg/gateway/tunnel/vxlan"
 	flagsutils "github.com/liqotech/liqo/pkg/utils/flags"
 	"github.com/liqotech/liqo/pkg/utils/mapper"
 	"github.com/liqotech/liqo/pkg/utils/restcfg"
@@ -41,7 +44,7 @@ import (
 
 var (
 	scheme  = runtime.NewScheme()
-	options = fou.NewOptions(gateway.NewOptions())
+	options = vxlan.NewOptions(gateway.NewOptions())
 )
 
 func init() {
@@ -51,10 +54,12 @@ func init() {
 
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update;delete
 // +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.liqo.io,resources=connections,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.liqo.io,resources=connections/status,verbs=get;update;patch
 
 func main() {
 	var cmd = cobra.Command{
-		Use:  "liqo-fou",
+		Use:  "liqo-vxlan",
 		RunE: run,
 	}
 
@@ -62,11 +67,7 @@ func main() {
 	restcfg.InitFlags(cmd.Flags())
 
 	gateway.InitFlags(cmd.Flags(), options.GwOptions)
-	fou.InitFlags(cmd.Flags(), options)
-	if err := fou.MarkFlagsRequired(&cmd, options); err != nil {
-		klog.Error(err)
-		os.Exit(1)
-	}
+	vxlan.InitFlags(cmd.Flags(), options)
 
 	if err := cmd.Execute(); err != nil {
 		klog.Error(err)
@@ -78,12 +79,15 @@ func run(cmd *cobra.Command, _ []string) error {
 	// Set controller-runtime logger.
 	log.SetLogger(klog.NewKlogr())
 
-	// Setup FOU tunnel interface.
-	if err := fou.InitFouLink(cmd.Context(), options); err != nil {
-		return fmt.Errorf("unable to init FOU link: %w", err)
+	if err := vxlan.ValidateOptions(options); err != nil {
+		return err
 	}
-	// Deregister the FOU receive port when the runtime shuts down.
-	defer fou.CleanupFouPort(options.LocalPort)
+
+	// Setup the VXLAN tunnel interface.
+	linkIndex, err := vxlan.InitVxlanLink(cmd.Context(), options)
+	if err != nil {
+		return fmt.Errorf("unable to init VXLAN link: %w", err)
+	}
 
 	// Get the rest config.
 	cfg := config.GetConfigOrDie()
@@ -92,6 +96,11 @@ func run(cmd *cobra.Command, _ []string) error {
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		MapperProvider: mapper.LiqoMapperProvider(scheme),
 		Scheme:         scheme,
+		Cache: cache.Options{
+			DefaultNamespaces: map[string]cache.Config{
+				options.GwOptions.Namespace: {},
+			},
+		},
 		Metrics: server.Options{
 			BindAddress: options.GwOptions.MetricsAddress,
 		},
@@ -108,6 +117,31 @@ func run(cmd *cobra.Command, _ []string) error {
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		return fmt.Errorf("unable to set up readyz probe: %w", err)
+	}
+
+	// Enforce the Connection resource once the cache has started: the gateway
+	// connection checker keeps it updated with the tunnel status.
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		return vxlan.EnsureConnection(ctx, mgr.GetClient(), mgr.GetScheme(), options)
+	})); err != nil {
+		return fmt.Errorf("unable to add connection enforcer: %w", err)
+	}
+
+	// The server learns the peer endpoint from the data plane; the client keeps
+	// the endpoint aligned with DNS when the server address is a hostname.
+	if options.GwOptions.Mode == gateway.ModeServer && options.EndpointLearning {
+		if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+			return vxlan.RunEndpointLearner(ctx, options, linkIndex)
+		})); err != nil {
+			return fmt.Errorf("unable to add endpoint learner: %w", err)
+		}
+	}
+	if options.GwOptions.Mode == gateway.ModeClient && vxlan.IsDNSRoutineRequired(options) {
+		if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+			return vxlan.RunDNSRoutine(ctx, options, linkIndex)
+		})); err != nil {
+			return fmt.Errorf("unable to add DNS routine: %w", err)
+		}
 	}
 
 	if options.GwOptions.LeaderElection {

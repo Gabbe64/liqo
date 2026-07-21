@@ -60,12 +60,7 @@ func enforceRouteConfigurationPresence(ctx context.Context, cl client.Client, sc
 		return err
 	}
 
-	gwserver, gwclient, err := getters.GetGatewaysByClusterID(ctx, cl, remoteClusterID)
-	if err != nil {
-		return err
-	}
-
-	mode, err := gatewayMode(gwserver, gwclient, remoteClusterID)
+	mode, err := GetGatewayMode(ctx, cl, remoteClusterID)
 	if err != nil {
 		return err
 	}
@@ -78,8 +73,6 @@ func enforceRouteConfigurationPresence(ctx context.Context, cl client.Client, sc
 	if err != nil {
 		return err
 	}
-
-	isFoU := isFoUGateway(gwserver, gwclient)
 
 	routecfg := &networkingv1beta1.RouteConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
@@ -94,19 +87,15 @@ func enforceRouteConfigurationPresence(ctx context.Context, cl client.Client, sc
 	}
 
 	_, err = resource.CreateOrUpdate(ctx, cl, routecfg,
-		forgeMutateRouteConfiguration(cfg, routecfg, scheme, remoteClusterID, remoteInterfaceIP, isFoU, internalNodes))
+		forgeMutateRouteConfiguration(cfg, routecfg, scheme, remoteClusterID, remoteInterfaceIP, internalNodes))
 	return err
 }
 
 // forgeMutateRouteConfiguration mutates a RouteConfiguration object.
-// When isFoU is true (FoU/IPIP tunnel), routes target the tunnel device directly.
-// For WireGuard tunnels, routes use the gateway IP.
 func forgeMutateRouteConfiguration(cfg *networkingv1beta1.Configuration,
 	routecfg *networkingv1beta1.RouteConfiguration, scheme *runtime.Scheme,
 	remoteClusterID liqov1beta1.ClusterID,
-	remoteInterfaceIP string,
-	isFoU bool,
-	internalNodes *networkingv1beta1.InternalNodeList) func() error {
+	remoteInterfaceIP string, internalNodes *networkingv1beta1.InternalNodeList) func() error {
 	return func() error {
 		var err error
 
@@ -123,25 +112,27 @@ func forgeMutateRouteConfiguration(cfg *networkingv1beta1.Configuration,
 		}
 
 		for i := range internalNodes.Items {
-			podRoute := forgeExternalRoute(cfg.Spec.Remote.CIDR.Pod, remoteInterfaceIP, isFoU)
-			extRoute := forgeExternalRoute(cfg.Spec.Remote.CIDR.External, remoteInterfaceIP, isFoU)
-
-			// The Iif is always the node's Geneve interface: traffic from worker nodes
-			// reaches the gateway via Geneve regardless of the tunnel type (WireGuard or FoU).
-			// Only the egress device/gateway IP in the route differs between tunnel types.
-			iif := &internalNodes.Items[i].Spec.Interface.Gateway.Name
-
 			routecfg.Spec.Table.Rules = append(routecfg.Spec.Table.Rules,
 				[]networkingv1beta1.Rule{
 					{
-						Iif:    iif,
-						Dst:    cidrutils.GetPrimary(cfg.Spec.Remote.CIDR.Pod),
-						Routes: []networkingv1beta1.Route{podRoute},
+						Iif: &internalNodes.Items[i].Spec.Interface.Gateway.Name,
+						Dst: cidrutils.GetPrimary(cfg.Spec.Remote.CIDR.Pod),
+						Routes: []networkingv1beta1.Route{
+							{
+								Dst: cidrutils.GetPrimary(cfg.Spec.Remote.CIDR.Pod),
+								Gw:  ptr.To(networkingv1beta1.IP(remoteInterfaceIP)),
+							},
+						},
 					},
 					{
-						Iif:    iif,
-						Dst:    cidrutils.GetPrimary(cfg.Spec.Remote.CIDR.External),
-						Routes: []networkingv1beta1.Route{extRoute},
+						Iif: &internalNodes.Items[i].Spec.Interface.Gateway.Name,
+						Dst: cidrutils.GetPrimary(cfg.Spec.Remote.CIDR.External),
+						Routes: []networkingv1beta1.Route{
+							{
+								Dst: cidrutils.GetPrimary(cfg.Spec.Remote.CIDR.External),
+								Gw:  ptr.To(networkingv1beta1.IP(remoteInterfaceIP)),
+							},
+						},
 					},
 				}...)
 		}
@@ -149,29 +140,13 @@ func forgeMutateRouteConfiguration(cfg *networkingv1beta1.Configuration,
 	}
 }
 
-// forgeExternalRoute creates a route for a remote CIDR.
-// For FoU/IPIP tunnels (isFoU true), the route targets the tunnel device directly —
-// the device's fixed Remote address and FoU encap settings handle egress
-// For WireGuard tunnels, it uses the traditional gateway IP (169.254.18.x).
-func forgeExternalRoute(cidrs []networkingv1beta1.CIDR,
-	remoteInterfaceIP string,
-	isFoU bool,
-) networkingv1beta1.Route {
-	if isFoU {
-		return networkingv1beta1.Route{
-			Dst: cidrutils.GetPrimary(cidrs),
-			Dev: ptr.To(tunnel.TunnelInterfaceName),
-		}
+// GetGatewayMode returns the mode of the Gateway related to the Configuration.
+func GetGatewayMode(ctx context.Context, cl client.Client, remoteClusterID liqov1beta1.ClusterID) (gateway.Mode, error) {
+	gwserver, gwclient, err := getters.GetGatewaysByClusterID(ctx, cl, remoteClusterID)
+	if err != nil {
+		return "", err
 	}
-	return networkingv1beta1.Route{
-		Dst: cidrutils.GetPrimary(cidrs),
-		Gw:  ptr.To(networkingv1beta1.IP(remoteInterfaceIP)),
-	}
-}
 
-// gatewayMode returns the mode of the Gateway from the pre-fetched objects.
-func gatewayMode(gwserver *networkingv1beta1.GatewayServer, gwclient *networkingv1beta1.GatewayClient,
-	remoteClusterID liqov1beta1.ClusterID) (gateway.Mode, error) {
 	switch {
 	case gwclient == nil && gwserver == nil:
 		return "", nil
@@ -182,25 +157,6 @@ func gatewayMode(gwserver *networkingv1beta1.GatewayServer, gwclient *networking
 	case gwclient != nil && gwserver == nil:
 		return gateway.ModeClient, nil
 	}
+
 	return "", fmt.Errorf("unable to determine Gateway mode for cluster %s", remoteClusterID)
-}
-
-// isFoUGateway returns true when the gateway pair uses FoU tunnelling.
-func isFoUGateway(gwserver *networkingv1beta1.GatewayServer, gwclient *networkingv1beta1.GatewayClient) bool {
-	if gwserver != nil && gwserver.Spec.ServerTemplateRef.Kind == networkingv1beta1.FouGatewayServerTemplateKind {
-		return true
-	}
-	if gwclient != nil && gwclient.Spec.ClientTemplateRef.Kind == networkingv1beta1.FouGatewayClientTemplateKind {
-		return true
-	}
-	return false
-}
-
-// GetGatewayMode returns the mode of the Gateway related to the Configuration.
-func GetGatewayMode(ctx context.Context, cl client.Client, remoteClusterID liqov1beta1.ClusterID) (gateway.Mode, error) {
-	gwserver, gwclient, err := getters.GetGatewaysByClusterID(ctx, cl, remoteClusterID)
-	if err != nil {
-		return "", err
-	}
-	return gatewayMode(gwserver, gwclient, remoteClusterID)
 }

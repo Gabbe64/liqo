@@ -16,6 +16,7 @@ package network
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -175,14 +176,9 @@ func (o *Options) RunConnect(ctx context.Context) error {
 		return err
 	}
 
-	// Wait for the gateway pod to be ready.
-	// For FoU gateways, the server deployment is only created after the client endpoint is
-	// propagated (the FouGatewayServer controller gates the deployment on --remote-port being set).
-	// Skip this wait for FoU so we can proceed to create the client and propagate the endpoint.
-	if gwServer.Spec.ServerTemplateRef.Kind != networkingv1beta1.FouGatewayServerTemplateKind {
-		if err := cluster2.waiter.ForGatewayPodReady(ctx, gwServer); err != nil {
-			return err
-		}
+	// Wait for the gateway pod to be ready
+	if err := cluster2.waiter.ForGatewayPodReady(ctx, gwServer); err != nil {
+		return err
 	}
 
 	// Wait for the endpoint status of the gateway server to be set
@@ -194,14 +190,7 @@ func (o *Options) RunConnect(ctx context.Context) error {
 
 	// By default address and port used by the GatewayClient are the ones written in the endpoint field of the status of the GatewayServer,
 	// unless address or port are manually overwritten
-	endpoint := gwServer.Status.Endpoint
-	if o.ClientConnectAddress != "" {
-		endpoint.Addresses = []string{o.ClientConnectAddress}
-	}
-
-	if o.ClientConnectPort != 0 {
-		endpoint.Port = o.ClientConnectPort
-	}
+	endpoint := o.overrideServerEndpoint(gwServer.Status.Endpoint)
 
 	gwClient, err := cluster1.EnsureGatewayClient(ctx,
 		o.newGatewayClientForgeOptions(o.LocalFactory.KubeClient, cluster2.localClusterID, endpoint))
@@ -214,51 +203,18 @@ func (o *Options) RunConnect(ctx context.Context) error {
 		return err
 	}
 
-	isFoU := gwServer.Spec.ServerTemplateRef.Kind == networkingv1beta1.FouGatewayServerTemplateKind &&
-		gwClient.Spec.ClientTemplateRef.Kind == networkingv1beta1.FouGatewayClientTemplateKind
+	// VXLAN gateways do not use WireGuard keys; skip the key-sharing step entirely.
+	// The server learns the client endpoint from the data plane, so no extra
+	// propagation step is needed. Fail early on mixed template kinds.
+	vxlanPeering, err := isVxlanPeering(gwServer, gwClient)
+	if err != nil {
+		return err
+	}
 
-	if isFoU {
-		if err := cluster1.waiter.ForGatewayClientStatusEndpoint(ctx, gwClient); err != nil {
+	if !vxlanPeering && !o.DisableSharingKeys {
+		if err := shareWireGuardKeys(ctx, cluster1, cluster2, gwServer, gwClient); err != nil {
 			return err
 		}
-		if err := cluster2.EnsureGatewayServerClientEndpoint(ctx, gwClient.Status.Endpoint); err != nil {
-			return err
-		}
-	}
-
-	// FoU does not use WireGuard keys; skip the key-sharing step entirely.
-	if isFoU || o.DisableSharingKeys {
-		return nil
-	}
-
-	// Wait for gateway server to set secret reference (containing the server public key) in the status
-	err = cluster2.waiter.ForGatewayServerSecretRef(ctx, gwServer)
-	if err != nil {
-		return err
-	}
-	keyServer, err := getters.ExtractKeyFromSecretRef(ctx, cluster2.local.CRClient, gwServer.Status.SecretRef)
-	if err != nil {
-		return err
-	}
-
-	// Create PublicKey of gateway server on cluster 1
-	if err := cluster1.EnsurePublicKey(ctx, cluster2.localClusterID, keyServer, gwClient); err != nil {
-		return err
-	}
-
-	// Wait for gateway client to set secret reference (containing the client public key) in the status
-	err = cluster1.waiter.ForGatewayClientSecretRef(ctx, gwClient)
-	if err != nil {
-		return err
-	}
-	keyClient, err := getters.ExtractKeyFromSecretRef(ctx, cluster1.local.CRClient, gwClient.Status.SecretRef)
-	if err != nil {
-		return err
-	}
-
-	// Create PublicKey of gateway client on cluster 2
-	if err := cluster2.EnsurePublicKey(ctx, cluster1.localClusterID, keyClient, gwServer); err != nil {
-		return err
 	}
 
 	if o.Wait {
@@ -282,6 +238,61 @@ func (o *Options) RunConnect(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// overrideServerEndpoint applies the user-provided address and port overrides to
+// the endpoint advertised by the gateway server.
+func (o *Options) overrideServerEndpoint(endpoint *networkingv1beta1.EndpointStatus) *networkingv1beta1.EndpointStatus {
+	if o.ClientConnectAddress != "" {
+		endpoint.Addresses = []string{o.ClientConnectAddress}
+	}
+	if o.ClientConnectPort != 0 {
+		endpoint.Port = o.ClientConnectPort
+	}
+	return endpoint
+}
+
+// isVxlanPeering tells whether the gateway pair uses the VXLAN tunnel templates.
+// It returns an error when only one side does, since mixed tunnel technologies
+// cannot interoperate.
+func isVxlanPeering(gwServer *networkingv1beta1.GatewayServer, gwClient *networkingv1beta1.GatewayClient) (bool, error) {
+	serverIsVxlan := gwServer.Spec.ServerTemplateRef.Kind == networkingv1beta1.VxlanGatewayServerTemplateKind
+	clientIsVxlan := gwClient.Spec.ClientTemplateRef.Kind == networkingv1beta1.VxlanGatewayClientTemplateKind
+	if serverIsVxlan != clientIsVxlan {
+		return false, fmt.Errorf("mismatched gateway templates: server %q and client %q must both be VXLAN or both WireGuard",
+			gwServer.Spec.ServerTemplateRef.Kind, gwClient.Spec.ClientTemplateRef.Kind)
+	}
+	return serverIsVxlan, nil
+}
+
+// shareWireGuardKeys exchanges the WireGuard public keys between the two clusters.
+func shareWireGuardKeys(ctx context.Context, cluster1, cluster2 *Cluster,
+	gwServer *networkingv1beta1.GatewayServer, gwClient *networkingv1beta1.GatewayClient) error {
+	// Wait for gateway server to set secret reference (containing the server public key) in the status
+	if err := cluster2.waiter.ForGatewayServerSecretRef(ctx, gwServer); err != nil {
+		return err
+	}
+	keyServer, err := getters.ExtractKeyFromSecretRef(ctx, cluster2.local.CRClient, gwServer.Status.SecretRef)
+	if err != nil {
+		return err
+	}
+
+	// Create PublicKey of gateway server on cluster 1
+	if err := cluster1.EnsurePublicKey(ctx, cluster2.localClusterID, keyServer, gwClient); err != nil {
+		return err
+	}
+
+	// Wait for gateway client to set secret reference (containing the client public key) in the status
+	if err := cluster1.waiter.ForGatewayClientSecretRef(ctx, gwClient); err != nil {
+		return err
+	}
+	keyClient, err := getters.ExtractKeyFromSecretRef(ctx, cluster1.local.CRClient, gwClient.Status.SecretRef)
+	if err != nil {
+		return err
+	}
+
+	// Create PublicKey of gateway client on cluster 2
+	return cluster2.EnsurePublicKey(ctx, cluster1.localClusterID, keyClient, gwServer)
 }
 
 // RunDisconnect disconnects two clusters.

@@ -12,5 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package fou contains the implementation of the FOU tunnel (with no encryption) runtime.
-package fou
+// Package vxlan contains the logic to configure the VXLAN tunnel runtime
+// used for plaintext cluster-to-cluster (external network) connectivity.
+//
+// The design follows the "ordinary UDP server" principle: the gateway server
+// listens on a stable, exposed UDP port and learns the client endpoint from
+// the outer source of received packets, always replying from the same
+// pinned source port so that return traffic traverses the exact NAT and
+// LoadBalancer conntrack mappings created by the forward traffic. The client
+// is a pure initiator and needs no inbound reachability.
+package vxlan

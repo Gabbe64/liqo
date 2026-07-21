@@ -83,7 +83,7 @@ func NewServerReconciler(cl client.Client, dynClient dynamic.Interface,
 // +kubebuilder:rbac:groups=networking.liqo.io,resources=wggatewayservers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=networking.liqo.io,resources=wggatewayservers/finalizers,verbs=update
 // +kubebuilder:rbac:groups=networking.liqo.io,resources=wggatewayservertemplates,verbs=get;list;watch;delete;create;update;patch
-// +kubebuilder:rbac:groups=networking.liqo.io,resources=fougatewayservertemplates,verbs=get;list;watch;delete;create;update;patch
+// +kubebuilder:rbac:groups=networking.liqo.io,resources=vxlangatewayservertemplates,verbs=get;list;watch;delete;create;update;patch
 
 // Reconcile manage GatewayServer lifecycle.
 func (r *ServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, err error) {

@@ -62,10 +62,14 @@ networking:
   serverResources:
     - apiVersion: networking.liqo.io/v1beta1
       resource: wggatewayservers
+    - apiVersion: networking.liqo.io/v1beta1
+      resource: vxlangatewayservers
   # -- Set the list of resources that implement the GatewayClient
   clientResources:
     - apiVersion: networking.liqo.io/v1beta1
       resource: wggatewayclients
+    - apiVersion: networking.liqo.io/v1beta1
+      resource: vxlangatewayclients
   gateway:
     # -- Enable the TCP MSS clamping on tunnel interfaces.
     # Tunneling technologies introduce extra overhead that reduces the MTU, causing standard-sized Internet
@@ -88,6 +92,9 @@ networking:
     wireguard:
       # -- Set the implementation used for the WireGuard connection. Possible values are "kernel" and "userspace".
       implementation: "kernel"
+    vxlan:
+      # -- Set the VXLAN Network Identifier used by the VXLAN gateway tunnels. It must match on both peered clusters.
+      vni: 100
     # -- Set the number of replicas for the gateway deployments
     replicas: 1
     # -- Set the options to configure the gateway ping used to check connection
@@ -124,11 +131,11 @@ networking:
           name: "ghcr.io/liqotech/gateway/wireguard"
           # -- Custom version for the wireguard image. If not specified, the global tag is used.
           version: ""
-      fou:
+      vxlan:
         image:
-          # -- Image repository for the fou container.
-          name: "ghcr.io/liqotech/gateway/fou"
-          # -- Custom version for the fou image. If not specified, the global tag is used.
+          # -- Image repository for the vxlan container.
+          name: "ghcr.io/liqotech/gateway/vxlan"
+          # -- Custom version for the vxlan image. If not specified, the global tag is used.
           version: ""
       geneve:
         image:

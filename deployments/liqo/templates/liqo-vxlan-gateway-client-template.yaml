@@ -1,12 +1,12 @@
-{{- $templateConfig := (merge (dict "name" "fou-client" "module" "networking" "isGwTemplate" true "gatewayRole" "client") .) -}}
+{{- $templateConfig := (merge (dict "name" "vxlan-client" "module" "networking" "isGwTemplate" true) .) -}}
 {{- $gatewayConfig := (merge (dict "name" "gateway" "module" "networking" "version" .Values.networking.gatewayTemplates.container.gateway.image.version) .) -}}
-{{- $fouConfig := (merge (dict "name" "gateway-fou" "module" "networking" "version" .Values.networking.gatewayTemplates.container.fou.image.version) .) -}}
+{{- $vxlanConfig := (merge (dict "name" "gateway-vxlan" "module" "networking" "version" .Values.networking.gatewayTemplates.container.vxlan.image.version) .) -}}
 {{- $geneveConfig := (merge (dict "name" "gateway-geneve" "module" "networking" "version" .Values.networking.gatewayTemplates.container.geneve.image.version) .) -}}
 
 {{- if .Values.networking.enabled }}
 
 apiVersion: networking.liqo.io/v1beta1
-kind: FouGatewayClientTemplate
+kind: VxlanGatewayClientTemplate
 metadata:
   name: {{ $templateConfig.name }}
   labels:
@@ -14,28 +14,11 @@ metadata:
 spec:
   objectKind:
     apiVersion: networking.liqo.io/v1beta1
-    kind: FouGatewayClient
+    kind: VxlanGatewayClient
   template:
     metadata:
       {{- include "liqo.metadataTemplate" $templateConfig | nindent 6 }}
     spec:
-      service:
-        metadata:
-          name: {{ quote "{{ .Name }}" }}
-          namespace: {{ quote "{{ .Namespace }}" }}
-          labels:
-            {{- include "liqo.labelsTemplate" $templateConfig | nindent 12 }}
-          annotations:
-            liqo.io/skip-reflection: "true"
-        spec:
-          selector:
-            {{- include "liqo.selectorTemplate" (merge (dict "isService" true) $templateConfig) | nindent 12 }}
-          type: LoadBalancer
-          externalTrafficPolicy: Local
-          ports:
-          - port: "{{"{{ .Spec.Endpoint.Port }}"}}"
-            protocol: UDP
-            targetPort: "{{"{{ .Spec.Endpoint.Port }}"}}"
       deployment:
         metadata:
           {{- include "liqo.metadataTemplate" $templateConfig | nindent 10 }}
@@ -70,7 +53,7 @@ spec:
                 - --gateway-uid={{"{{ .GatewayUID }}"}}
                 - --mode=client
                 - --container-name=gateway
-                - --concurrent-containers-names=fou,geneve
+                - --concurrent-containers-names=vxlan,geneve
                 {{- if .Values.common.globalAnnotations }}
                 {{- $d := dict "commandName" "--global-annotations" "dictionary" .Values.common.globalAnnotations -}}
                 {{- include "liqo.concatenateMap" $d | nindent 16 }}
@@ -122,8 +105,8 @@ spec:
                     add:
                     - NET_ADMIN
                     - NET_RAW
-              - name: fou
-                image: {{ .Values.networking.gatewayTemplates.container.fou.image.name }}{{ include "liqo.suffix" $fouConfig }}:{{ include "liqo.version" $fouConfig }}
+              - name: vxlan
+                image: {{ .Values.networking.gatewayTemplates.container.vxlan.image.name }}{{ include "liqo.suffix" $vxlanConfig }}:{{ include "liqo.version" $vxlanConfig }}
                 imagePullPolicy: {{ .Values.pullPolicy }}
                 args:
                 - --name={{"{{ .Name }}"}}
@@ -131,11 +114,12 @@ spec:
                 - --remote-cluster-id={{"{{ .ClusterID }}"}}
                 - --gateway-uid={{"{{ .GatewayUID }}"}}
                 - --mode=client
-                - --container-name=fou
+                - --container-name=vxlan
                 - --mtu={{"{{ .Spec.MTU }}"}}
-                - --listen-port={{"{{ .Spec.Endpoint.Port }}"}}
-                - --remote-port={{"{{ .Spec.Endpoint.Port }}"}}
+                - --vni={{ .Values.networking.gatewayTemplates.vxlan.vni }}
+                - --port={{"{{ .Spec.Endpoint.Port }}"}}
                 - --remote-address={{"{{ index .Spec.Endpoint.Addresses 0 }}"}}
+                - --remote-port={{"{{ .Spec.Endpoint.Port }}"}}
                 {{- if .Values.metrics.enabled }}
                 - --metrics-address=:8084
                 {{- end }}
@@ -148,7 +132,7 @@ spec:
                 ports:
                 {{- if .Values.metrics.enabled }}
                 - containerPort: 8084
-                  name: fou-metrics
+                  name: vxlan-metrics
                 {{- end }}
                 - containerPort: 8085
                   name: healthz

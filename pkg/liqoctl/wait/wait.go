@@ -245,25 +245,6 @@ func (w *Waiter) ForGatewayServerStatusEndpoint(ctx context.Context, gwServer *n
 	return nil
 }
 
-// ForGatewayClientStatusEndpoint waits until the service of a Gateway resource has been created
-// (i.e., until its endpoint status is set).
-func (w *Waiter) ForGatewayClientStatusEndpoint(ctx context.Context, gwClient *networkingv1beta1.GatewayClient) error {
-	s := w.Printer.StartSpinner("Waiting for gateway client Service to be created")
-	err := wait.PollUntilContextCancel(ctx, 1*time.Second, true, func(ctx context.Context) (done bool, err error) {
-		err = w.CRClient.Get(ctx, client.ObjectKeyFromObject(gwClient), gwClient)
-		if err != nil {
-			return false, client.IgnoreNotFound(err)
-		}
-		return gwClient.Status.Endpoint != nil && len(gwClient.Status.Endpoint.Addresses) > 0, nil
-	})
-	if err != nil {
-		s.Fail(fmt.Sprintf("Failed waiting for gateway client Service to be created: %s", output.PrettyErr(err)))
-		return err
-	}
-	s.Success("Gateway client Service created successfully")
-	return nil
-}
-
 // ForGatewayServerSecretRef waits until the secret containing the public key of a gateway server has been created
 // (i.e., until its secret reference status is not set).
 func (w *Waiter) ForGatewayServerSecretRef(ctx context.Context, gwServer *networkingv1beta1.GatewayServer) error {
