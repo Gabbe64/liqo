@@ -16,7 +16,7 @@
 // Package tenantns contains the permissions required on the tenant namespace to create peering connection with the provider cluster via liqoctl.
 package tenantns
 
-// +kubebuilder:rbac:groups=networking.liqo.io,resources=configurations;gatewayclients;gatewayservers;publickeies,verbs=create;update;get;list;delete
+// +kubebuilder:rbac:groups=networking.liqo.io,resources=configurations;gatewayclients;gatewayservers;publickeies;peerendpoints,verbs=create;update;get;list;delete
 // +kubebuilder:rbac:groups=networking.liqo.io,resources=connections,verbs=get;list
 // +kubebuilder:rbac:groups=networking.liqo.io,resources=gatewayclients/status;gatewayservers/status,verbs=get
 // +kubebuilder:rbac:groups=ipam.liqo.io,resources=ips,verbs=create;update;get;delete

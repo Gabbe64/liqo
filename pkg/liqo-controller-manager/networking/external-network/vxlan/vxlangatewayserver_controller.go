@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -36,10 +35,8 @@ import (
 
 	networkingv1beta1 "github.com/liqotech/liqo/apis/networking/v1beta1"
 	"github.com/liqotech/liqo/pkg/consts"
-	"github.com/liqotech/liqo/pkg/gateway"
 	"github.com/liqotech/liqo/pkg/gateway/forge"
 	enutils "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/utils"
-	"github.com/liqotech/liqo/pkg/utils"
 	mapsutil "github.com/liqotech/liqo/pkg/utils/maps"
 	"github.com/liqotech/liqo/pkg/utils/resource"
 )
@@ -144,8 +141,7 @@ func (r *GatewayServerReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}()
 
 	// Ensure deployment (create or update).
-	deploy, err := r.ensureDeployment(ctx, vxlanServer, deployNsName)
-	if err != nil {
+	if _, err = r.ensureDeployment(ctx, vxlanServer, deployNsName); err != nil {
 		return ctrl.Result{}, err
 	}
 	r.eventRecorder.Event(vxlanServer, corev1.EventTypeNormal, "DeploymentEnforced", "Enforced deployment")
@@ -158,7 +154,7 @@ func (r *GatewayServerReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	r.eventRecorder.Event(vxlanServer, corev1.EventTypeNormal, "ServiceEnforced", "Enforced service")
 
 	// Handle endpoint status from the service.
-	if err := r.handleEndpointStatus(ctx, vxlanServer, svcNsName, deploy); err != nil {
+	if err := r.handleEndpointStatus(ctx, vxlanServer, svcNsName); err != nil {
 		klog.Errorf("Error while handling endpoint status: %v", err)
 		r.eventRecorder.Event(vxlanServer, corev1.EventTypeWarning, "EndpointStatusFailed",
 			fmt.Sprintf("Failed to handle endpoint status: %s", err))
@@ -254,7 +250,7 @@ func (r *GatewayServerReconciler) mutateFnVxlanServerService(service *corev1.Ser
 	if service.Annotations == nil {
 		service.Annotations = map[string]string{}
 	}
-	service.Annotations[consts.SkipReflectionAnnotationKey] = "true"
+	service.Annotations[consts.SkipReflectionAnnotationKey] = skipReflectionValue
 
 	// Forge spec.
 	serviceClassName := service.Spec.LoadBalancerClass
@@ -268,7 +264,7 @@ func (r *GatewayServerReconciler) mutateFnVxlanServerService(service *corev1.Ser
 }
 
 func (r *GatewayServerReconciler) handleEndpointStatus(ctx context.Context, vxlanServer *networkingv1beta1.VxlanGatewayServer,
-	svcNsName types.NamespacedName, dep *appsv1.Deployment) error {
+	svcNsName types.NamespacedName) error {
 	var service corev1.Service
 	err := r.Get(ctx, svcNsName, &service)
 	if err != nil {
@@ -280,103 +276,15 @@ func (r *GatewayServerReconciler) handleEndpointStatus(ctx context.Context, vxla
 		return err
 	}
 
-	var endpointStatus *networkingv1beta1.EndpointStatus
-	switch service.Spec.Type {
-	case corev1.ServiceTypeClusterIP:
-		endpointStatus, err = forgeEndpointStatusClusterIP(&service)
-	case corev1.ServiceTypeNodePort:
-		endpointStatus, err = r.forgeEndpointStatusNodePort(ctx, &service, dep)
-	case corev1.ServiceTypeLoadBalancer:
-		endpointStatus, err = forgeEndpointStatusLoadBalancer(&service)
-	default:
-		err = fmt.Errorf("service type %q not supported for VXLAN gateway server Service %q", service.Spec.Type, svcNsName)
-		klog.Error(err)
-		vxlanServer.Status.Endpoint = nil // we empty the endpoint status to avoid misaligned spec and status
-	}
-
+	endpointStatus, err := forgeEndpointStatus(ctx, r.Client, &service, svcNsName.Namespace)
 	if err != nil {
+		// Empty the endpoint status to avoid a misaligned spec and status.
+		vxlanServer.Status.Endpoint = nil
 		return err
 	}
 
 	vxlanServer.Status.Endpoint = endpointStatus
 	return nil
-}
-
-func forgeEndpointStatusClusterIP(service *corev1.Service) (*networkingv1beta1.EndpointStatus, error) {
-	if len(service.Spec.Ports) == 0 {
-		return nil, fmt.Errorf("service %s/%s has no ports", service.Namespace, service.Name)
-	}
-
-	return &networkingv1beta1.EndpointStatus{
-		Protocol:  &service.Spec.Ports[0].Protocol,
-		Port:      service.Spec.Ports[0].Port,
-		Addresses: service.Spec.ClusterIPs,
-	}, nil
-}
-
-func (r *GatewayServerReconciler) forgeEndpointStatusNodePort(ctx context.Context, service *corev1.Service,
-	dep *appsv1.Deployment) (*networkingv1beta1.EndpointStatus, error) {
-	if len(service.Spec.Ports) == 0 {
-		return nil, fmt.Errorf("service %s/%s has no ports", service.Namespace, service.Name)
-	}
-
-	podsSelector := client.MatchingLabelsSelector{Selector: labels.SelectorFromSet(gateway.ForgeActiveGatewayPodLabels())}
-	var podList corev1.PodList
-	if err := r.List(ctx, &podList, client.InNamespace(dep.Namespace), podsSelector); err != nil {
-		klog.Errorf("Unable to list pods of deployment %s/%s: %v", dep.Namespace, dep.Name, err)
-		return nil, err
-	}
-
-	if len(podList.Items) != 1 {
-		return nil, fmt.Errorf("wrong number of pods for deployment %s/%s: %d (must be 1)",
-			dep.Namespace, dep.Name, len(podList.Items))
-	}
-	pod := &podList.Items[0]
-
-	node := &corev1.Node{}
-	if err := r.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, node); err != nil && !apierrors.IsNotFound(err) {
-		klog.Errorf("Unable to get node %q: %v", pod.Spec.NodeName, err)
-		return nil, err
-	}
-
-	addresses := make([]string, 1)
-	if utils.IsNodeReady(node) {
-		var err error
-		if addresses[0], err = utils.GetAddress(node); err != nil {
-			klog.Errorf("Unable to get address of node %q: %v", pod.Spec.NodeName, err)
-			return nil, err
-		}
-	}
-
-	return &networkingv1beta1.EndpointStatus{
-		Protocol:  &service.Spec.Ports[0].Protocol,
-		Port:      service.Spec.Ports[0].NodePort,
-		Addresses: addresses,
-	}, nil
-}
-
-func forgeEndpointStatusLoadBalancer(service *corev1.Service) (*networkingv1beta1.EndpointStatus, error) {
-	if len(service.Spec.Ports) == 0 {
-		return nil, fmt.Errorf("service %s/%s has no ports", service.Namespace, service.Name)
-	}
-
-	var addresses []string
-	for i := range service.Status.LoadBalancer.Ingress {
-		// Prefer the IP over the hostname when both are set: the tunnel runtime
-		// resolves hostnames, but a literal IP avoids the DNS dependency.
-		if ip := service.Status.LoadBalancer.Ingress[i].IP; ip != "" {
-			addresses = append(addresses, ip)
-		}
-		if hostName := service.Status.LoadBalancer.Ingress[i].Hostname; hostName != "" {
-			addresses = append(addresses, hostName)
-		}
-	}
-
-	return &networkingv1beta1.EndpointStatus{
-		Protocol:  &service.Spec.Ports[0].Protocol,
-		Port:      service.Spec.Ports[0].Port,
-		Addresses: addresses,
-	}, nil
 }
 
 func (r *GatewayServerReconciler) handleInternalEndpointStatus(ctx context.Context,

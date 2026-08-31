@@ -127,13 +127,23 @@ func run(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("unable to add connection enforcer: %w", err)
 	}
 
-	// The server learns the peer endpoint from the data plane; the client keeps
-	// the endpoint aligned with DNS when the server address is a hostname.
-	if options.GwOptions.Mode == gateway.ModeServer && options.EndpointLearning {
-		if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
-			return vxlan.RunEndpointLearner(ctx, options, linkIndex)
-		})); err != nil {
-			return fmt.Errorf("unable to add endpoint learner: %w", err)
+	// The server obtains the peer endpoint from one of two providers, depending on
+	// the tunnel mode: the data-plane learner (nat-traversal) or the PeerEndpoint
+	// resource (static). The client always has it configured.
+	if options.GwOptions.Mode == gateway.ModeServer {
+		switch options.TunnelMode {
+		case vxlan.TunnelModeNATTraversal:
+			if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+				return vxlan.RunEndpointLearner(ctx, options, linkIndex)
+			})); err != nil {
+				return fmt.Errorf("unable to add endpoint learner: %w", err)
+			}
+		case vxlan.TunnelModeStatic:
+			per := vxlan.NewPeerEndpointReconciler(mgr.GetClient(), mgr.GetScheme(),
+				mgr.GetEventRecorderFor("peer-endpoint-controller"), options, linkIndex)
+			if err := per.SetupWithManager(mgr); err != nil {
+				return fmt.Errorf("unable to setup peer endpoint reconciler: %w", err)
+			}
 		}
 	}
 	if options.GwOptions.Mode == gateway.ModeClient && vxlan.IsDNSRoutineRequired(options) {

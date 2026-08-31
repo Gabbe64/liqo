@@ -95,6 +95,17 @@ networking:
     vxlan:
       # -- Set the VXLAN Network Identifier used by the VXLAN gateway tunnels. It must match on both peered clusters.
       vni: 100
+      # -- Options for the VXLAN templates using the "static" tunnel mode. In this mode both gateways are configured
+      # with each other's endpoint instead of learning it from the data plane: this allows the outer UDP source port
+      # to be hashed (so RSS and ECMP can spread the tunnel traffic), but requires the two gateways to be mutually
+      # reachable. Use the default "nat-traversal" templates when the client is behind NAT.
+      static:
+        client:
+          service:
+            # -- Service type used to expose the gateway client, which in "static" tunnel mode must be reachable by the server.
+            type: NodePort
+            # -- Port used to expose the gateway client in "static" tunnel mode.
+            port: 51841
     # -- Set the number of replicas for the gateway deployments
     replicas: 1
     # -- Set the options to configure the gateway ping used to check connection

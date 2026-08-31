@@ -33,17 +33,29 @@ var VxlanGatewayClientGroupVersionResource = GroupVersion.WithResource(VxlanGate
 
 // VxlanGatewayClientSpec defines the desired state of VxlanGatewayClient.
 //
-// The client is a pure initiator: it needs no Service and no inbound
-// reachability. The server learns the client endpoint from the data plane.
+// In "nat-traversal" tunnel mode the client is a pure initiator: it needs no
+// Service and no inbound reachability, because the server learns its endpoint
+// from the data plane. In "static" tunnel mode the client must be reachable by
+// the server, so a Service is required and its endpoint is published in the
+// status.
 type VxlanGatewayClientSpec struct {
 	// Deployment specifies the deployment template for the client.
 	Deployment DeploymentTemplate `json:"deployment"`
+	// Service specifies the service template for the client. It must be set only
+	// in "static" tunnel mode, where the server needs to reach the client at a
+	// known endpoint.
+	// +optional
+	Service *ServiceTemplate `json:"service,omitempty"`
 	// Metrics specifies the metrics configuration for the client.
 	Metrics *Metrics `json:"metrics,omitempty"`
 }
 
 // VxlanGatewayClientStatus defines the observed state of VxlanGatewayClient.
 type VxlanGatewayClientStatus struct {
+	// Endpoint specifies the endpoint at which the client is reachable.
+	// Populated only in "static" tunnel mode, i.e. when a Service is configured.
+	// +optional
+	Endpoint *EndpointStatus `json:"endpoint,omitempty"`
 	// InternalEndpoint specifies the endpoint for the internal network.
 	InternalEndpoint *InternalGatewayEndpoint `json:"internalEndpoint,omitempty"`
 }

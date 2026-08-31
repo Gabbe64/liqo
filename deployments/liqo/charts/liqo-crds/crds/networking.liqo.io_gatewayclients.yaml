@@ -203,6 +203,29 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              endpoint:
+                description: |-
+                  Endpoint specifies the endpoint at which the client is reachable.
+                  Populated only by tunnel technologies where the client is reachable too
+                  (e.g. VXLAN in "static" tunnel mode); the counterpart of
+                  GatewayServer.Status.Endpoint.
+                properties:
+                  addresses:
+                    description: Addresses specifies the addresses of the endpoint.
+                    items:
+                      type: string
+                    type: array
+                  port:
+                    description: Port specifies the port of the endpoint.
+                    format: int32
+                    type: integer
+                  protocol:
+                    description: Protocol specifies the protocol of the endpoint.
+                    enum:
+                    - TCP
+                    - UDP
+                    type: string
+                type: object
               internalEndpoint:
                 description: InternalEndpoint specifies the endpoint for the internal
                   network.

@@ -99,10 +99,14 @@ func InitVxlanLink(ctx context.Context, opts *Options) (int, error) {
 		return 0, err
 	}
 
-	// The client (and the server in static mode) points the default destination
-	// at the configured remote endpoint. In learning mode the server leaves it
-	// unset: it is installed as soon as the first client packet is observed.
-	if opts.GwOptions.Mode == gateway.ModeClient || !opts.EndpointLearning {
+	// The FDB default destination has three possible providers:
+	//   - configured at startup: the client (both modes), and the server when a
+	//     peer endpoint was passed explicitly (manual/static setups);
+	//   - the endpoint learner: the server in nat-traversal mode;
+	//   - the PeerEndpoint watcher: the server in static mode.
+	// The last two populate it after startup, which is what decouples the tunnel
+	// from gateway startup ordering.
+	if opts.RemoteAddress != "" && opts.RemotePort > 0 {
 		remoteIP, err := ResolveRemoteIP(ctx, opts.RemoteAddress)
 		if err != nil {
 			return 0, err
@@ -112,8 +116,9 @@ func InitVxlanLink(ctx context.Context, opts *Options) (int, error) {
 		}
 	}
 
-	klog.Infof("VXLAN tunnel interface %q ready (vni=%d, port=%d, mode=%s, ip=%s)",
-		tunnel.TunnelInterfaceName, opts.VNI, opts.Port, opts.GwOptions.Mode, interfaceIP)
+	low, high := srcPortRange(opts)
+	klog.Infof("VXLAN tunnel interface %q ready (vni=%d, port=%d, role=%s, tunnel-mode=%s, srcport=[%d,%d), ip=%s)",
+		tunnel.TunnelInterfaceName, opts.VNI, opts.Port, opts.GwOptions.Mode, opts.TunnelMode, low, high, interfaceIP)
 	return link.Attrs().Index, nil
 }
 
@@ -131,20 +136,16 @@ func ensureVxlanDevice(opts *Options) (netlink.Link, error) {
 		}
 	}
 
+	low, high := srcPortRange(opts)
 	link := &netlink.Vxlan{
 		LinkAttrs: netlink.LinkAttrs{
 			Name: tunnel.TunnelInterfaceName,
 			MTU:  opts.MTU,
 		},
-		VxlanId: opts.VNI,
-		Port:    opts.Port,
-		// The kernel source-port range is upper-exclusive, and an empty range
-		// (low == high) silently falls back to the ephemeral port range: [P, P+1)
-		// is the way to pin the source port to P. The pin is load-bearing: all
-		// tunnel traffic must share one outer 5-tuple so that the peer observes a
-		// single stable endpoint and replies traverse NAT/conntrack in reverse.
-		PortLow:  opts.Port,
-		PortHigh: opts.Port + 1,
+		VxlanId:  opts.VNI,
+		Port:     opts.Port,
+		PortLow:  low,
+		PortHigh: high,
 		Learning: false,
 		UDPCSum:  true,
 	}
@@ -157,17 +158,58 @@ func ensureVxlanDevice(opts *Options) (netlink.Link, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot get tunnel interface after creation: %w", err)
 	}
-	return created, nil
+
+	// Record the tunnel mode on the device (see deviceAlias).
+	if err := netlink.LinkSetAlias(created, deviceAlias(opts.TunnelMode)); err != nil {
+		return nil, fmt.Errorf("cannot set alias on interface %q: %w", tunnel.TunnelInterfaceName, err)
+	}
+
+	return tunnel.GetLink(tunnel.TunnelInterfaceName)
+}
+
+// srcPortRange returns the outer UDP source-port range for the configured mode.
+//
+// nat-traversal pins the source port to the bound port. The kernel range is
+// upper-exclusive and an empty range falls back to the ephemeral range, so
+// [P, P+1) is how a single port is expressed. The pin is mandatory here: the peer
+// replies to the *observed* source port, and the NAT reverse-mapping delivers
+// that reply to the port we transmitted from — which must therefore be the port
+// we listen on.
+//
+// static leaves the range unset (0,0) so the kernel hashes the source port per
+// inner flow, which is what allows RSS (multi-queue receive) and ECMP (multipath)
+// to spread tunnel traffic. This is only correct because in static mode the peer
+// replies to our *configured* port, never to the observed source.
+func srcPortRange(opts *Options) (low, high int) {
+	if opts.TunnelMode == TunnelModeStatic {
+		return 0, 0
+	}
+	return opts.Port, opts.Port + 1
+}
+
+// deviceAlias is the alias stamped on the tunnel device to record the tunnel
+// mode it was created with.
+//
+// The source-port range would be the natural thing to compare when deciding
+// whether an existing device can be reused, but it cannot be read back: the
+// netlink library never parses IFLA_VXLAN_PORT_RANGE (the error check in
+// parseVxlanData is inverted), so PortLow/PortHigh always deserialize to 0.
+// The alias is parsed reliably and makes a mode change visible both to this
+// code and to `ip -d link show`.
+func deviceAlias(mode TunnelMode) string {
+	return fmt.Sprintf("liqo-vxlan:%s", mode)
 }
 
 // vxlanParamsMatch tells whether the existing device can be reused as is.
+// Reuse matters: recreating the device invalidates every route that references
+// its index, so a tunnel-container restart would silently drop the dataplane
+// until something re-triggers the route controllers.
 // The MTU is excluded: it is adjusted in place.
 func vxlanParamsMatch(vx *netlink.Vxlan, opts *Options) bool {
 	return vx.VxlanId == opts.VNI &&
 		vx.Port == opts.Port &&
-		vx.PortLow == opts.Port &&
-		vx.PortHigh == opts.Port+1 &&
-		!vx.Learning
+		!vx.Learning &&
+		vx.Alias == deviceAlias(opts.TunnelMode)
 }
 
 // ensurePeerNeighbor installs a permanent neighbor entry mapping the peer's

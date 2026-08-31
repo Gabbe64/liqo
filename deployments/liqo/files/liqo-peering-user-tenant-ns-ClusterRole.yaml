@@ -46,6 +46,7 @@ rules:
   - configurations
   - gatewayclients
   - gatewayservers
+  - peerendpoints
   - publickeies
   verbs:
   - create

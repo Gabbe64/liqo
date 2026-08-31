@@ -41,6 +41,16 @@ const (
 	ClusterRoleBindingFinalizer = "networking.liqo.io/clusterrolebinding"
 	// GatewayNameLabel is the label added to a resource to identify the Gateway it belongs to.
 	GatewayNameLabel = "networking.liqo.io/gateway-name"
+
+	// TunnelModeLabel is the label used on gateway templates to advertise the tunnel
+	// mode they configure, for tunnel technologies supporting more than one.
+	// It allows liqoctl to apply the mode-specific steps of the peering (e.g., the
+	// peer endpoint exchange required by the VXLAN "static" mode).
+	TunnelModeLabel = "networking.liqo.io/tunnel-mode"
+
+	// TunnelModeStatic is the tunnel mode requiring both gateways to be mutually
+	// reachable and configured with each other's endpoint.
+	TunnelModeStatic = "static"
 	// GatewayNamespaceLabel is the label added to a resource to identify the namespace of the Gateway it belongs to.
 	GatewayNamespaceLabel = "networking.liqo.io/gateway-namespace"
 )

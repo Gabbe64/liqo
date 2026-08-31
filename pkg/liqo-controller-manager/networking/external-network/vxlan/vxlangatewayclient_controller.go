@@ -16,6 +16,7 @@ package vxlan
 
 import (
 	"context"
+	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -70,6 +71,8 @@ func NewGatewayClientReconciler(cl client.Client, s *runtime.Scheme,
 // +kubebuilder:rbac:groups=networking.liqo.io,resources=vxlangatewayclients/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;delete;create;update;patch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;delete;create;update;patch
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;delete;create;update;patch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;list;watch;delete;create;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;delete;create;update;patch
@@ -123,6 +126,7 @@ func (r *GatewayClientReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	deployNsName := types.NamespacedName{Namespace: vxlanClient.Namespace, Name: forge.GatewayResourceName(vxlanClient.Name)}
+	svcNsName := types.NamespacedName{Namespace: vxlanClient.Namespace, Name: forge.GatewayResourceName(vxlanClient.Name)}
 
 	// Handle status.
 	defer func() {
@@ -146,6 +150,25 @@ func (r *GatewayClientReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 	r.eventRecorder.Event(vxlanClient, corev1.EventTypeNormal, "DeploymentEnforced", "Enforced deployment")
 
+	// In "static" tunnel mode the client must be reachable by the server, so it
+	// gets a Service and publishes its endpoint. In "nat-traversal" mode no
+	// Service is configured and the client stays a pure initiator.
+	if vxlanClient.Spec.Service != nil {
+		if _, err = r.ensureService(ctx, vxlanClient, svcNsName); err != nil {
+			return ctrl.Result{}, err
+		}
+		r.eventRecorder.Event(vxlanClient, corev1.EventTypeNormal, "ServiceEnforced", "Enforced service")
+
+		if err := r.handleEndpointStatus(ctx, vxlanClient, svcNsName); err != nil {
+			klog.Errorf("Error while handling endpoint status: %v", err)
+			r.eventRecorder.Event(vxlanClient, corev1.EventTypeWarning, "EndpointStatusFailed",
+				fmt.Sprintf("Failed to handle endpoint status: %s", err))
+			return ctrl.Result{}, err
+		}
+	} else {
+		vxlanClient.Status.Endpoint = nil
+	}
+
 	// Handle internal endpoint status (requires running pods).
 	r.handleInternalEndpointStatus(ctx, vxlanClient, deployNsName)
 
@@ -166,6 +189,7 @@ func (r *GatewayClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).Named(consts.CtrlVxlanGatewayClient).
 		For(&networkingv1beta1.VxlanGatewayClient{}).
 		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.Service{}).
 		Owns(&corev1.ServiceAccount{}).
 		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(podEnquerer)).
 		Watches(&rbacv1.ClusterRoleBinding{},
@@ -190,6 +214,71 @@ func (r *GatewayClientReconciler) ensureDeployment(ctx context.Context, vxlanCli
 
 	klog.Infof("Deployment %q correctly enforced (operation: %s)", depNsName, op)
 	return &dep, nil
+}
+
+func (r *GatewayClientReconciler) ensureService(ctx context.Context, vxlanClient *networkingv1beta1.VxlanGatewayClient,
+	svcNsName types.NamespacedName) (*corev1.Service, error) {
+	svc := corev1.Service{ObjectMeta: metav1.ObjectMeta{
+		Name:      svcNsName.Name,
+		Namespace: svcNsName.Namespace,
+	}}
+
+	op, err := resource.CreateOrUpdate(ctx, r.Client, &svc, func() error {
+		return r.mutateFnVxlanClientService(&svc, vxlanClient)
+	})
+	if err != nil {
+		klog.Errorf("error while creating/updating service %q (operation: %s): %v", svcNsName, op, err)
+		return nil, err
+	}
+
+	klog.Infof("Service %q correctly enforced (operation: %s)", svcNsName, op)
+	return &svc, nil
+}
+
+func (r *GatewayClientReconciler) mutateFnVxlanClientService(service *corev1.Service,
+	vxlanClient *networkingv1beta1.VxlanGatewayClient) error {
+	// Forge metadata.
+	mapsutil.SmartMergeLabels(service, vxlanClient.Spec.Service.Metadata.GetLabels())
+	mapsutil.SmartMergeAnnotations(service, vxlanClient.Spec.Service.Metadata.GetAnnotations())
+
+	// Ensure the service is never reflected to remote clusters.
+	if service.Annotations == nil {
+		service.Annotations = map[string]string{}
+	}
+	service.Annotations[consts.SkipReflectionAnnotationKey] = skipReflectionValue
+
+	// Forge spec.
+	serviceClassName := service.Spec.LoadBalancerClass
+	service.Spec = vxlanClient.Spec.Service.Spec
+	if vxlanClient.Spec.Service.Spec.LoadBalancerClass == nil {
+		service.Spec.LoadBalancerClass = serviceClassName
+	}
+
+	// Set VXLAN client as owner of the service.
+	return controllerutil.SetControllerReference(vxlanClient, service, r.Scheme)
+}
+
+func (r *GatewayClientReconciler) handleEndpointStatus(ctx context.Context,
+	vxlanClient *networkingv1beta1.VxlanGatewayClient, svcNsName types.NamespacedName) error {
+	var service corev1.Service
+	if err := r.Get(ctx, svcNsName, &service); err != nil {
+		if apierrors.IsNotFound(err) {
+			vxlanClient.Status.Endpoint = nil
+			return nil
+		}
+		klog.Error(err)
+		return err
+	}
+
+	endpointStatus, err := forgeEndpointStatus(ctx, r.Client, &service, svcNsName.Namespace)
+	if err != nil {
+		// Empty the endpoint status to avoid a misaligned spec and status.
+		vxlanClient.Status.Endpoint = nil
+		return err
+	}
+
+	vxlanClient.Status.Endpoint = endpointStatus
+	return nil
 }
 
 func (r *GatewayClientReconciler) mutateFnVxlanClientDeployment(deployment *appsv1.Deployment,

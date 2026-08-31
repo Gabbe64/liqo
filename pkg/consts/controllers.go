@@ -51,6 +51,7 @@ const (
 	CtrlPodGateway             = "pod_gateway"
 	CtrlPodGwMasq              = "pod_gw_masq"
 	CtrlPodInternalNet         = "pod_internalnet"
+	CtrlPeerEndpoint           = "peerendpoint"
 	CtrlPublicKey              = "publickey"
 	CtrlRouteConfiguration     = "routeconfiguration"
 	CtrlVxlanGatewayClient     = "vxlangatewayclient"

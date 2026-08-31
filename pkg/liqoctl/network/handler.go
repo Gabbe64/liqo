@@ -25,6 +25,7 @@ import (
 
 	liqov1beta1 "github.com/liqotech/liqo/apis/core/v1beta1"
 	networkingv1beta1 "github.com/liqotech/liqo/apis/networking/v1beta1"
+	"github.com/liqotech/liqo/pkg/consts"
 	"github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/forge"
 	"github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/getters"
 	"github.com/liqotech/liqo/pkg/liqoctl/factory"
@@ -204,17 +205,14 @@ func (o *Options) RunConnect(ctx context.Context) error {
 	}
 
 	// VXLAN gateways do not use WireGuard keys; skip the key-sharing step entirely.
-	// The server learns the client endpoint from the data plane, so no extra
-	// propagation step is needed. Fail early on mixed template kinds.
+	// Fail early on mixed template kinds.
 	vxlanPeering, err := isVxlanPeering(gwServer, gwClient)
 	if err != nil {
 		return err
 	}
 
-	if !vxlanPeering && !o.DisableSharingKeys {
-		if err := shareWireGuardKeys(ctx, cluster1, cluster2, gwServer, gwClient); err != nil {
-			return err
-		}
+	if err := o.exchangePeerInfo(ctx, cluster1, cluster2, gwServer, gwClient, vxlanPeering); err != nil {
+		return err
 	}
 
 	if o.Wait {
@@ -250,6 +248,56 @@ func (o *Options) overrideServerEndpoint(endpoint *networkingv1beta1.EndpointSta
 		endpoint.Port = o.ClientConnectPort
 	}
 	return endpoint
+}
+
+// exchangePeerInfo performs the tunnel-specific step that completes the peering
+// once both gateways are running: WireGuard exchanges public keys, while VXLAN in
+// "static" tunnel mode hands the client endpoint over to the server (in
+// "nat-traversal" mode the server learns it from the data plane, so nothing is
+// needed).
+func (o *Options) exchangePeerInfo(ctx context.Context, cluster1, cluster2 *Cluster,
+	gwServer *networkingv1beta1.GatewayServer, gwClient *networkingv1beta1.GatewayClient, vxlanPeering bool) error {
+	if !vxlanPeering {
+		if o.DisableSharingKeys {
+			return nil
+		}
+		return shareWireGuardKeys(ctx, cluster1, cluster2, gwServer, gwClient)
+	}
+
+	staticMode, err := o.isStaticTunnelMode(ctx, cluster1, cluster2)
+	if err != nil {
+		return err
+	}
+	if !staticMode {
+		return nil
+	}
+
+	if err := cluster1.waiter.ForGatewayClientStatusEndpoint(ctx, gwClient); err != nil {
+		return err
+	}
+	return cluster2.EnsurePeerEndpoint(ctx, cluster1.localClusterID, gwClient.Status.Endpoint, gwServer)
+}
+
+// isStaticTunnelMode tells whether the gateway templates configure the "static"
+// tunnel mode, in which both gateways are configured with each other's endpoint
+// instead of learning it from the data plane. The mode is advertised by the
+// templates through the tunnel-mode label; both sides must agree.
+func (o *Options) isStaticTunnelMode(ctx context.Context, cluster1, cluster2 *Cluster) (bool, error) {
+	serverMode, err := cluster2.GetTemplateTunnelMode(ctx, o.ServerTemplateName, o.ServerTemplateNamespace, o.ServerGatewayType)
+	if err != nil {
+		return false, fmt.Errorf("unable to read the tunnel mode of the gateway server template: %w", err)
+	}
+	clientMode, err := cluster1.GetTemplateTunnelMode(ctx, o.ClientTemplateName, o.ClientTemplateNamespace, o.ClientGatewayType)
+	if err != nil {
+		return false, fmt.Errorf("unable to read the tunnel mode of the gateway client template: %w", err)
+	}
+
+	if serverMode != clientMode {
+		return false, fmt.Errorf("mismatched tunnel modes: gateway server template declares %q while the client one declares %q; "+
+			"both gateways must use the same tunnel mode", serverMode, clientMode)
+	}
+
+	return serverMode == consts.TunnelModeStatic, nil
 }
 
 // isVxlanPeering tells whether the gateway pair uses the VXLAN tunnel templates.

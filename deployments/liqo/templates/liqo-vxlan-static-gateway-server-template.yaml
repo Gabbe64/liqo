@@ -1,4 +1,4 @@
-{{- $templateConfig := (merge (dict "name" "vxlan-server" "module" "networking" "isGwTemplate" true) .) -}}
+{{- $templateConfig := (merge (dict "name" "vxlan-static-server" "module" "networking" "isGwTemplate" true) .) -}}
 {{- $gatewayConfig := (merge (dict "name" "gateway" "module" "networking" "version" .Values.networking.gatewayTemplates.container.gateway.image.version) .) -}}
 {{- $vxlanConfig := (merge (dict "name" "gateway-vxlan" "module" "networking" "version" .Values.networking.gatewayTemplates.container.vxlan.image.version) .) -}}
 {{- $geneveConfig := (merge (dict "name" "gateway-geneve" "module" "networking" "version" .Values.networking.gatewayTemplates.container.geneve.image.version) .) -}}
@@ -11,6 +11,7 @@ metadata:
   name: {{ $templateConfig.name }}
   labels:
     {{- include "liqo.labels" $templateConfig | nindent 4 }}
+    networking.liqo.io/tunnel-mode: "static"
 spec:
   objectKind:
     apiVersion: networking.liqo.io/v1beta1
@@ -142,7 +143,7 @@ spec:
                 - --mtu={{"{{ .Spec.MTU }}"}}
                 - --vni={{ .Values.networking.gatewayTemplates.vxlan.vni }}
                 - --port={{"{{ .Spec.Endpoint.Port }}"}}
-                - --tunnel-mode=nat-traversal
+                - --tunnel-mode=static
                 {{- if .Values.metrics.enabled }}
                 - --metrics-address=:8084
                 {{- end }}

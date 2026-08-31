@@ -15,6 +15,7 @@
 package vxlan
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -43,8 +44,8 @@ const (
 	// FlagNameRemotePort is the UDP port of the remote tunnel endpoint.
 	FlagNameRemotePort FlagName = "remote-port"
 
-	// FlagNameEndpointLearning enables learning the peer endpoint from received traffic.
-	FlagNameEndpointLearning FlagName = "endpoint-learning"
+	// FlagNameTunnelMode selects the endpoint-discovery strategy.
+	FlagNameTunnelMode FlagName = "tunnel-mode"
 
 	// FlagNameLearningCooldown is the minimum interval between two endpoint updates.
 	FlagNameLearningCooldown FlagName = "learning-cooldown"
@@ -75,8 +76,11 @@ func InitFlags(flagset *pflag.FlagSet, opts *Options) {
 		"Address (IP or DNS name) of the remote tunnel endpoint (required in client mode)")
 	flagset.IntVar(&opts.RemotePort, FlagNameRemotePort.String(), 0,
 		"UDP port of the remote tunnel endpoint (required in client mode)")
-	flagset.BoolVar(&opts.EndpointLearning, FlagNameEndpointLearning.String(), true,
-		"Learn the peer endpoint from the outer source of received VXLAN packets (server mode)")
+	flagset.StringVar((*string)(&opts.TunnelMode), FlagNameTunnelMode.String(), string(TunnelModeNATTraversal),
+		fmt.Sprintf("Endpoint-discovery strategy, one of %v. %q learns the peer endpoint from received traffic "+
+			"(works behind NAT, pins the source port); %q uses configured endpoints on both sides (requires mutual "+
+			"reachability, allows source-port hashing so RSS/ECMP work)",
+			TunnelModes, TunnelModeNATTraversal, TunnelModeStatic))
 	flagset.DurationVar(&opts.LearningCooldown, FlagNameLearningCooldown.String(), 3*time.Second,
 		"Minimum interval between two learned endpoint updates")
 	flagset.DurationVar(&opts.DNSCheckInterval, FlagNameDNSCheckInterval.String(), 5*time.Minute,

@@ -267,6 +267,17 @@ func (c *Cluster) CheckTemplateGwServer(ctx context.Context, opts *Options) erro
 	return nil
 }
 
+// GetTemplateTunnelMode returns the tunnel mode advertised by a gateway template
+// through the tunnel-mode label. An empty string means the template does not
+// declare one (i.e., the tunnel technology has a single mode).
+func (c *Cluster) GetTemplateTunnelMode(ctx context.Context, templateName, templateNamespace, templateGvr string) (string, error) {
+	template, err := c.checkTemplate(ctx, templateName, templateNamespace, templateGvr)
+	if err != nil {
+		return "", err
+	}
+	return template.GetLabels()[consts.TunnelModeLabel], nil
+}
+
 func (c *Cluster) checkTemplate(ctx context.Context, templateName, templateNamespace, templateGvr string) (*unstructured.Unstructured, error) {
 	// Server Template Reference
 	gvr, err := enutils.ParseGroupVersionResource(templateGvr)
@@ -509,6 +520,47 @@ func (c *Cluster) EnsurePublicKey(ctx context.Context, remoteClusterID liqov1bet
 	}
 
 	s.Success("Public key correctly created")
+	return nil
+}
+
+// EnsurePeerEndpoint creates or updates the PeerEndpoint resource carrying the
+// endpoint at which the remote gateway is reachable.
+//
+// It is required by tunnel modes that configure both sides statically: the
+// gateway runtime watches this resource, so the endpoint can arrive after the
+// gateway pod has started (decoupling it from startup ordering) and can be
+// updated later without a restart.
+func (c *Cluster) EnsurePeerEndpoint(ctx context.Context, remoteClusterID liqov1beta1.ClusterID,
+	endpoint *networkingv1beta1.EndpointStatus, ownerGateway metav1.Object) error {
+	s := c.local.Printer.StartSpinner("Creating peer endpoint")
+
+	if endpoint == nil || len(endpoint.Addresses) == 0 {
+		err := fmt.Errorf("the remote gateway endpoint is not available yet")
+		s.Fail(fmt.Sprintf("An error occurred while creating peer endpoint: %v", output.PrettyErr(err)))
+		return err
+	}
+
+	peerEndpoint := &networkingv1beta1.PeerEndpoint{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      string(remoteClusterID),
+			Namespace: c.localNetworkNamespace,
+		},
+	}
+
+	_, err := resource.CreateOrUpdate(ctx, c.local.CRClient, peerEndpoint, func() error {
+		if peerEndpoint.Labels == nil {
+			peerEndpoint.Labels = map[string]string{}
+		}
+		peerEndpoint.Labels[consts.RemoteClusterID] = string(remoteClusterID)
+		peerEndpoint.Spec.Endpoint = *endpoint.DeepCopy()
+		return controllerutil.SetOwnerReference(ownerGateway, peerEndpoint, c.local.CRClient.Scheme())
+	})
+	if err != nil {
+		s.Fail(fmt.Sprintf("An error occurred while creating peer endpoint: %v", output.PrettyErr(err)))
+		return err
+	}
+
+	s.Success("Peer endpoint correctly created")
 	return nil
 }
 

@@ -245,6 +245,27 @@ func (w *Waiter) ForGatewayServerStatusEndpoint(ctx context.Context, gwServer *n
 	return nil
 }
 
+// ForGatewayClientStatusEndpoint waits until the endpoint at which the gateway client
+// is reachable has been published in its status. Only meaningful for tunnel modes
+// where the client is reachable too (e.g. VXLAN "static").
+func (w *Waiter) ForGatewayClientStatusEndpoint(ctx context.Context, gwClient *networkingv1beta1.GatewayClient) error {
+	s := w.Printer.StartSpinner("Waiting for gateway client endpoint to be published")
+	err := wait.PollUntilContextCancel(ctx, 1*time.Second, true, func(ctx context.Context) (done bool, err error) {
+		err = w.CRClient.Get(ctx, client.ObjectKeyFromObject(gwClient), gwClient)
+		if err != nil {
+			return false, client.IgnoreNotFound(err)
+		}
+		return gwClient.Status.Endpoint != nil && len(gwClient.Status.Endpoint.Addresses) > 0 &&
+			gwClient.Status.Endpoint.Addresses[0] != "", nil
+	})
+	if err != nil {
+		s.Fail(fmt.Sprintf("Failed waiting for gateway client endpoint to be published: %s", output.PrettyErr(err)))
+		return err
+	}
+	s.Success("Gateway client endpoint published")
+	return nil
+}
+
 // ForGatewayServerSecretRef waits until the secret containing the public key of a gateway server has been created
 // (i.e., until its secret reference status is not set).
 func (w *Waiter) ForGatewayServerSecretRef(ctx context.Context, gwServer *networkingv1beta1.GatewayServer) error {

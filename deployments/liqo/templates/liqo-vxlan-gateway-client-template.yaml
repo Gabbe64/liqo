@@ -115,6 +115,7 @@ spec:
                 - --gateway-uid={{"{{ .GatewayUID }}"}}
                 - --mode=client
                 - --container-name=vxlan
+                - --tunnel-mode=nat-traversal
                 - --mtu={{"{{ .Spec.MTU }}"}}
                 - --vni={{ .Values.networking.gatewayTemplates.vxlan.vni }}
                 - --port={{"{{ .Spec.Endpoint.Port }}"}}

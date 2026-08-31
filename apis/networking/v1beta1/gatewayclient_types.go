@@ -56,6 +56,12 @@ type GatewayClientStatus struct {
 	SecretRef *corev1.ObjectReference `json:"secretRef,omitempty"`
 	// InternalEndpoint specifies the endpoint for the internal network.
 	InternalEndpoint *InternalGatewayEndpoint `json:"internalEndpoint,omitempty"`
+	// Endpoint specifies the endpoint at which the client is reachable.
+	// Populated only by tunnel technologies where the client is reachable too
+	// (e.g. VXLAN in "static" tunnel mode); the counterpart of
+	// GatewayServer.Status.Endpoint.
+	// +optional
+	Endpoint *EndpointStatus `json:"endpoint,omitempty"`
 }
 
 // +kubebuilder:object:root=true

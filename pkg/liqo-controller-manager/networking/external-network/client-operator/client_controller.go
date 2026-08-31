@@ -268,6 +268,10 @@ func (r *ClientReconciler) EnsureGatewayClient(ctx context.Context, gwClient *ne
 	if ok && secretRef != nil {
 		gwClient.Status.SecretRef = enutils.ParseRef(*secretRef)
 	}
+	endpoint, ok := enutils.GetIfExists[map[string]interface{}](status, "endpoint")
+	if ok && endpoint != nil {
+		gwClient.Status.Endpoint = enutils.ParseEndpoint(*endpoint)
+	}
 	internalEndpoint, ok := enutils.GetIfExists[map[string]interface{}](status, "internalEndpoint")
 	if ok && internalEndpoint != nil {
 		gwClient.Status.InternalEndpoint = enutils.ParseInternalEndpoint(*internalEndpoint)
