@@ -23,6 +23,8 @@ rules:
 - apiGroups:
   - networking.liqo.io
   resources:
+  - genevegatewayclienttemplates
+  - genevegatewayservertemplates
   - vxlangatewayclienttemplates
   - vxlangatewayservertemplates
   - wggatewayclienttemplates

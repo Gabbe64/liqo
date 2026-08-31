@@ -21,3 +21,4 @@ package liqons
 // +kubebuilder:rbac:groups=ipam.liqo.io,resources=ips,namespace="do-not-care",verbs=get
 // +kubebuilder:rbac:groups=networking.liqo.io,resources=wggatewayservertemplates;wggatewayclienttemplates,namespace="do-not-care",verbs=get;list
 // +kubebuilder:rbac:groups=networking.liqo.io,resources=vxlangatewayservertemplates;vxlangatewayclienttemplates,namespace="do-not-care",verbs=get;list
+// +kubebuilder:rbac:groups=networking.liqo.io,resources=genevegatewayservertemplates;genevegatewayclienttemplates,namespace="do-not-care",verbs=get;list

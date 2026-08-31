@@ -44,18 +44,20 @@ type Options struct {
 	DefaultLimitsEnforcement   string
 
 	// Networking module
-	IPAMServer                        string
-	GatewayServerResources            args.StringList
-	GatewayClientResources            args.StringList
-	WgGatewayServerClusterRoleName    string
-	WgGatewayClientClusterRoleName    string
-	VxlanGatewayServerClusterRoleName string
-	VxlanGatewayClientClusterRoleName string
-	FabricFullMasqueradeEnabled       bool
-	GwmasqbypassEnabled               bool
-	NetworkWorkers                    int
-	IPWorkers                         int
-	GenevePort                        uint16
+	IPAMServer                         string
+	GatewayServerResources             args.StringList
+	GatewayClientResources             args.StringList
+	WgGatewayServerClusterRoleName     string
+	WgGatewayClientClusterRoleName     string
+	VxlanGatewayServerClusterRoleName  string
+	VxlanGatewayClientClusterRoleName  string
+	GeneveGatewayServerClusterRoleName string
+	GeneveGatewayClientClusterRoleName string
+	FabricFullMasqueradeEnabled        bool
+	GwmasqbypassEnabled                bool
+	NetworkWorkers                     int
+	IPWorkers                          int
+	GenevePort                         uint16
 
 	// Authentication module
 	APIServerAddressOverride string

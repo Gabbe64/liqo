@@ -181,6 +181,8 @@ rules:
   - firewallconfigurations
   - gatewayclients
   - gatewayservers
+  - genevegatewayclients
+  - genevegatewayservers
   - genevetunnels
   - internalfabrics
   - internalnodes
@@ -208,6 +210,8 @@ rules:
   - configurations/finalizers
   - gatewayclients/finalizers
   - gatewayservers/finalizers
+  - genevegatewayclients/finalizers
+  - genevegatewayservers/finalizers
   - genevetunnels/finalizers
   - internalfabrics/finalizers
   - internalnodes/finalizers
@@ -242,6 +246,8 @@ rules:
   - firewallconfigurations/status
   - gatewayclients/status
   - gatewayservers/status
+  - genevegatewayclients/status
+  - genevegatewayservers/status
   - internalfabrics/status
   - vxlangatewayclients/status
   - vxlangatewayservers/status

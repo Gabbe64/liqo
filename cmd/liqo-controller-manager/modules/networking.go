@@ -29,6 +29,7 @@ import (
 	liqocontrollermanager "github.com/liqotech/liqo/pkg/liqo-controller-manager"
 	clientoperator "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/client-operator"
 	configuration "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/configuration"
+	genevegatewaycontrollers "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/geneve"
 	"github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/remapping"
 	externalnetworkroute "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/route"
 	serveroperator "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/server-operator"
@@ -55,16 +56,18 @@ type NetworkingOption struct {
 	LiqoNamespace string
 	IpamClient    ipam.IPAMClient
 
-	GatewayServerResources            []string
-	GatewayClientResources            []string
-	WgGatewayServerClusterRoleName    string
-	WgGatewayClientClusterRoleName    string
-	VxlanGatewayServerClusterRoleName string
-	VxlanGatewayClientClusterRoleName string
-	NetworkWorkers                    int
-	IPWorkers                         int
-	FabricFullMasquerade              bool
-	GwmasqbypassEnabled               bool
+	GatewayServerResources             []string
+	GatewayClientResources             []string
+	WgGatewayServerClusterRoleName     string
+	WgGatewayClientClusterRoleName     string
+	VxlanGatewayServerClusterRoleName  string
+	VxlanGatewayClientClusterRoleName  string
+	GeneveGatewayServerClusterRoleName string
+	GeneveGatewayClientClusterRoleName string
+	NetworkWorkers                     int
+	IPWorkers                          int
+	FabricFullMasquerade               bool
+	GwmasqbypassEnabled                bool
 
 	GenevePort uint16
 }
@@ -79,16 +82,18 @@ func NewNetworkingOption(factory *dynamicutils.RunnableFactory, dynClient dynami
 		LiqoNamespace: opts.LiqoNamespace,
 		IpamClient:    ipamClient,
 
-		GatewayServerResources:            opts.GatewayServerResources.StringList,
-		GatewayClientResources:            opts.GatewayClientResources.StringList,
-		WgGatewayServerClusterRoleName:    opts.WgGatewayServerClusterRoleName,
-		WgGatewayClientClusterRoleName:    opts.WgGatewayClientClusterRoleName,
-		VxlanGatewayServerClusterRoleName: opts.VxlanGatewayServerClusterRoleName,
-		VxlanGatewayClientClusterRoleName: opts.VxlanGatewayClientClusterRoleName,
-		NetworkWorkers:                    opts.NetworkWorkers,
-		IPWorkers:                         opts.IPWorkers,
-		FabricFullMasquerade:              opts.FabricFullMasqueradeEnabled,
-		GwmasqbypassEnabled:               opts.GwmasqbypassEnabled,
+		GatewayServerResources:             opts.GatewayServerResources.StringList,
+		GatewayClientResources:             opts.GatewayClientResources.StringList,
+		WgGatewayServerClusterRoleName:     opts.WgGatewayServerClusterRoleName,
+		WgGatewayClientClusterRoleName:     opts.WgGatewayClientClusterRoleName,
+		VxlanGatewayServerClusterRoleName:  opts.VxlanGatewayServerClusterRoleName,
+		VxlanGatewayClientClusterRoleName:  opts.VxlanGatewayClientClusterRoleName,
+		GeneveGatewayServerClusterRoleName: opts.GeneveGatewayServerClusterRoleName,
+		GeneveGatewayClientClusterRoleName: opts.GeneveGatewayClientClusterRoleName,
+		NetworkWorkers:                     opts.NetworkWorkers,
+		IPWorkers:                          opts.IPWorkers,
+		FabricFullMasquerade:               opts.FabricFullMasqueradeEnabled,
+		GwmasqbypassEnabled:                opts.GwmasqbypassEnabled,
 
 		GenevePort: opts.GenevePort,
 	}
@@ -164,6 +169,22 @@ func SetupNetworkingModule(ctx context.Context, mgr manager.Manager, uncachedCli
 		opts.VxlanGatewayClientClusterRoleName)
 	if err := vxlanClientRec.SetupWithManager(mgr); err != nil {
 		klog.Errorf("Unable to start the vxlanGatewayClientReconciler: %v", err)
+		return err
+	}
+
+	geneveServerRec := genevegatewaycontrollers.NewGatewayServerReconciler(mgr.GetClient(), mgr.GetScheme(),
+		mgr.GetEventRecorderFor("geneve-gateway-server-controller"),
+		opts.GeneveGatewayServerClusterRoleName)
+	if err := geneveServerRec.SetupWithManager(mgr); err != nil {
+		klog.Errorf("Unable to start the geneveGatewayServerReconciler: %v", err)
+		return err
+	}
+
+	geneveClientRec := genevegatewaycontrollers.NewGatewayClientReconciler(mgr.GetClient(), mgr.GetScheme(),
+		mgr.GetEventRecorderFor("geneve-gateway-client-controller"),
+		opts.GeneveGatewayClientClusterRoleName)
+	if err := geneveClientRec.SetupWithManager(mgr); err != nil {
+		klog.Errorf("Unable to start the geneveGatewayClientReconciler: %v", err)
 		return err
 	}
 

@@ -72,6 +72,10 @@ func InitFlags(flagset *pflag.FlagSet, opts *Options) {
 		"The name of the cluster role used by the VXLAN gateway servers")
 	flagset.StringVar(&opts.VxlanGatewayClientClusterRoleName, "vxlan-gateway-client-cluster-role-name", "liqo-gateway",
 		"The name of the cluster role used by the VXLAN gateway clients")
+	flagset.StringVar(&opts.GeneveGatewayServerClusterRoleName, "geneve-gateway-server-cluster-role-name", "liqo-gateway",
+		"The name of the cluster role used by the geneve gateway servers")
+	flagset.StringVar(&opts.GeneveGatewayClientClusterRoleName, "geneve-gateway-client-cluster-role-name", "liqo-gateway",
+		"The name of the cluster role used by the geneve gateway clients")
 	flagset.BoolVar(&opts.FabricFullMasqueradeEnabled, "fabric-full-masquerade-enabled", false,
 		"Enable the full masquerade on the fabric network")
 	flagset.BoolVar(&opts.GwmasqbypassEnabled, "gateway-masquerade-bypass-enabled", false,

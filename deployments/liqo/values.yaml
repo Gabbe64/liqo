@@ -64,12 +64,16 @@ networking:
       resource: wggatewayservers
     - apiVersion: networking.liqo.io/v1beta1
       resource: vxlangatewayservers
+    - apiVersion: networking.liqo.io/v1beta1
+      resource: genevegatewayservers
   # -- Set the list of resources that implement the GatewayClient
   clientResources:
     - apiVersion: networking.liqo.io/v1beta1
       resource: wggatewayclients
     - apiVersion: networking.liqo.io/v1beta1
       resource: vxlangatewayclients
+    - apiVersion: networking.liqo.io/v1beta1
+      resource: genevegatewayclients
   gateway:
     # -- Enable the TCP MSS clamping on tunnel interfaces.
     # Tunneling technologies introduce extra overhead that reduces the MTU, causing standard-sized Internet
@@ -106,6 +110,17 @@ networking:
             type: NodePort
             # -- Port used to expose the gateway client in "static" tunnel mode.
             port: 51841
+    geneve:
+      # -- Set the Virtual Network Identifier used by the Geneve gateway tunnels. It must match on both peered clusters:
+      # nothing validates it, and a mismatch silently black-holes the tunnel.
+      vni: 100
+      client:
+        service:
+          # -- Service type used to expose the gateway client. The Geneve server replies to a configured endpoint rather
+          # than to the observed source, so the client must be reachable and always needs a service.
+          type: NodePort
+          # -- Port used to expose the gateway client.
+          port: 51842
     # -- Set the number of replicas for the gateway deployments
     replicas: 1
     # -- Set the options to configure the gateway ping used to check connection
@@ -153,6 +168,13 @@ networking:
           # -- Image repository for the geneve container.
           name: "ghcr.io/liqotech/gateway/geneve"
           # -- Custom version for the geneve image. If not specified, the global tag is used.
+          version: ""
+      geneveTunnel:
+        image:
+          # -- Image repository for the geneve external-tunnel container. Distinct from the "geneve" container above,
+          # which terminates the internal fabric inside the same pod.
+          name: "ghcr.io/liqotech/gateway/geneve-tunnel"
+          # -- Custom version for the geneve-tunnel image. If not specified, the global tag is used.
           version: ""
     # -- Enable/Disable the nftables monitor for the gateway pods.
     # It means that the gateway pods will monitor the nftables rules and will restore them in case of changes.

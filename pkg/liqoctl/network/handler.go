@@ -204,14 +204,14 @@ func (o *Options) RunConnect(ctx context.Context) error {
 		return err
 	}
 
-	// VXLAN gateways do not use WireGuard keys; skip the key-sharing step entirely.
-	// Fail early on mixed template kinds.
-	vxlanPeering, err := isVxlanPeering(gwServer, gwClient)
+	// Plaintext gateways do not use WireGuard keys; the key-sharing step is
+	// replaced by a tunnel-specific one. Fail early on mixed template kinds.
+	tunnel, err := peeringTunnelKind(gwServer, gwClient)
 	if err != nil {
 		return err
 	}
 
-	if err := o.exchangePeerInfo(ctx, cluster1, cluster2, gwServer, gwClient, vxlanPeering); err != nil {
+	if err := o.exchangePeerInfo(ctx, cluster1, cluster2, gwServer, gwClient, tunnel); err != nil {
 		return err
 	}
 
@@ -251,25 +251,32 @@ func (o *Options) overrideServerEndpoint(endpoint *networkingv1beta1.EndpointSta
 }
 
 // exchangePeerInfo performs the tunnel-specific step that completes the peering
-// once both gateways are running: WireGuard exchanges public keys, while VXLAN in
-// "static" tunnel mode hands the client endpoint over to the server (in
-// "nat-traversal" mode the server learns it from the data plane, so nothing is
-// needed).
+// once both gateways are running.
+//
+// WireGuard exchanges public keys. VXLAN in "static" tunnel mode hands the client
+// endpoint over to the server, while in "nat-traversal" mode the server learns it
+// from the data plane and nothing is needed. Geneve always needs the exchange:
+// the kernel gives no way to pin the outer source port, so the server can never
+// infer its peer from received traffic.
 func (o *Options) exchangePeerInfo(ctx context.Context, cluster1, cluster2 *Cluster,
-	gwServer *networkingv1beta1.GatewayServer, gwClient *networkingv1beta1.GatewayClient, vxlanPeering bool) error {
-	if !vxlanPeering {
+	gwServer *networkingv1beta1.GatewayServer, gwClient *networkingv1beta1.GatewayClient, tunnel tunnelKind) error {
+	switch tunnel {
+	case tunnelWireGuard:
 		if o.DisableSharingKeys {
 			return nil
 		}
 		return shareWireGuardKeys(ctx, cluster1, cluster2, gwServer, gwClient)
-	}
 
-	staticMode, err := o.isStaticTunnelMode(ctx, cluster1, cluster2)
-	if err != nil {
-		return err
-	}
-	if !staticMode {
-		return nil
+	case tunnelVxlan:
+		staticMode, err := o.isStaticTunnelMode(ctx, cluster1, cluster2)
+		if err != nil {
+			return err
+		}
+		if !staticMode {
+			return nil
+		}
+
+	case tunnelGeneve:
 	}
 
 	if err := cluster1.waiter.ForGatewayClientStatusEndpoint(ctx, gwClient); err != nil {
@@ -300,17 +307,48 @@ func (o *Options) isStaticTunnelMode(ctx context.Context, cluster1, cluster2 *Cl
 	return serverMode == consts.TunnelModeStatic, nil
 }
 
-// isVxlanPeering tells whether the gateway pair uses the VXLAN tunnel templates.
-// It returns an error when only one side does, since mixed tunnel technologies
+// tunnelKind identifies the tunnel technology a gateway pair is built on.
+type tunnelKind int
+
+const (
+	// tunnelWireGuard is the default, encrypted tunnel.
+	tunnelWireGuard tunnelKind = iota
+	// tunnelVxlan is the plaintext VXLAN tunnel.
+	tunnelVxlan
+	// tunnelGeneve is the plaintext Geneve tunnel.
+	tunnelGeneve
+)
+
+// peeringTunnelKind tells which tunnel technology the gateway pair uses. It
+// returns an error when the two sides disagree, since mixed tunnel technologies
 // cannot interoperate.
-func isVxlanPeering(gwServer *networkingv1beta1.GatewayServer, gwClient *networkingv1beta1.GatewayClient) (bool, error) {
-	serverIsVxlan := gwServer.Spec.ServerTemplateRef.Kind == networkingv1beta1.VxlanGatewayServerTemplateKind
-	clientIsVxlan := gwClient.Spec.ClientTemplateRef.Kind == networkingv1beta1.VxlanGatewayClientTemplateKind
-	if serverIsVxlan != clientIsVxlan {
-		return false, fmt.Errorf("mismatched gateway templates: server %q and client %q must both be VXLAN or both WireGuard",
-			gwServer.Spec.ServerTemplateRef.Kind, gwClient.Spec.ClientTemplateRef.Kind)
+func peeringTunnelKind(gwServer *networkingv1beta1.GatewayServer,
+	gwClient *networkingv1beta1.GatewayClient) (tunnelKind, error) {
+	serverKind, clientKind := gwServer.Spec.ServerTemplateRef.Kind, gwClient.Spec.ClientTemplateRef.Kind
+
+	var server, client tunnelKind
+	switch serverKind {
+	case networkingv1beta1.VxlanGatewayServerTemplateKind:
+		server = tunnelVxlan
+	case networkingv1beta1.GeneveGatewayServerTemplateKind:
+		server = tunnelGeneve
+	default:
+		server = tunnelWireGuard
 	}
-	return serverIsVxlan, nil
+	switch clientKind {
+	case networkingv1beta1.VxlanGatewayClientTemplateKind:
+		client = tunnelVxlan
+	case networkingv1beta1.GeneveGatewayClientTemplateKind:
+		client = tunnelGeneve
+	default:
+		client = tunnelWireGuard
+	}
+
+	if server != client {
+		return server, fmt.Errorf("mismatched gateway templates: server %q and client %q must use the same tunnel technology",
+			serverKind, clientKind)
+	}
+	return server, nil
 }
 
 // shareWireGuardKeys exchanges the WireGuard public keys between the two clusters.

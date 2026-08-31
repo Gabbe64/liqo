@@ -179,6 +179,7 @@ jobs:
           - gateway
           - gateway/wireguard
           - gateway/geneve
+          - gateway/geneve-tunnel
           - fabric
     steps:
       - name: Check out code
