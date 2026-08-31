@@ -31,4 +31,20 @@
 // Ethernet header, no MAC address to assign, and no neighbor entry to install:
 // the device is addressed with the usual link-local /30 and the peer resolves
 // through the connected route.
+//
+// Two properties of the kernel driver constrain how the gateway may be exposed,
+// and both differ from VXLAN:
+//
+//   - On receive, `geneve_lookup` matches a packet on (VNI, outer source
+//     address) against the device's configured remote. Any SNAT on the inbound
+//     path therefore makes packets match no device and be silently dropped, so
+//     the gateway Services use `externalTrafficPolicy: Local`. VXLAN has no such
+//     constraint: it looks up by VNI alone and accepts any source.
+//
+//   - A device has a single UDP port, used both for listening and as the
+//     transmit destination, and the kernel refuses to change it once the device
+//     exists. The peer must therefore be reachable on exactly that port, which
+//     is why the Services pin their node port to it. VXLAN instead carries a
+//     per-destination port in its FDB entry (NDA_PORT) and can reach a peer
+//     through a translated port.
 package geneve

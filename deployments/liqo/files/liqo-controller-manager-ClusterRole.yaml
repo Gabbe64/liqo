@@ -182,7 +182,9 @@ rules:
   - gatewayclients
   - gatewayservers
   - genevegatewayclients
+  - genevegatewayclienttemplates
   - genevegatewayservers
+  - genevegatewayservertemplates
   - genevetunnels
   - internalfabrics
   - internalnodes

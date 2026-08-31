@@ -34,10 +34,22 @@ spec:
           selector:
             {{- include "liqo.selectorTemplate" (merge (dict "isService" true) $templateConfig) | nindent 12 }}
           type: {{ .Values.networking.gatewayTemplates.geneve.client.service.type }}
+          # The kernel matches received Geneve packets on (VNI, outer source address)
+          # against the device's configured remote, so any SNAT on the inbound path
+          # makes them match no device and be dropped. Local traffic policy keeps the
+          # peer's address intact. VXLAN does not need this: it looks up by VNI alone.
+          externalTrafficPolicy: Local
           ports:
           - port: {{ .Values.networking.gatewayTemplates.geneve.client.service.port }}
             protocol: UDP
             targetPort: {{ .Values.networking.gatewayTemplates.geneve.client.service.port }}
+            # The node port must equal the tunnel port. A Geneve device uses a single
+            # UDP port for both listening and transmitting, and the kernel refuses to
+            # change it on a live device, so the peer cannot be reached through a
+            # translated port the way a VXLAN FDB entry allows.
+            {{- if eq .Values.networking.gatewayTemplates.geneve.client.service.type "NodePort" }}
+            nodePort: {{ .Values.networking.gatewayTemplates.geneve.client.service.port }}
+            {{- end }}
       deployment:
         metadata:
           {{- include "liqo.metadataTemplate" $templateConfig | nindent 10 }}

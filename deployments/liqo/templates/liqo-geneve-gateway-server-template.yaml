@@ -35,6 +35,11 @@ spec:
             {{- include "liqo.selectorTemplate" (merge (dict "isService" true) $templateConfig) | nindent 12 }}
           type: "{{"{{ .Spec.Endpoint.ServiceType }}"}}"
           ?loadBalancerIP: "{{"{{ .Spec.Endpoint.LoadBalancerIP }}"}}"
+          # The kernel matches received Geneve packets on (VNI, outer source address)
+          # against the device's configured remote, so any SNAT on the inbound path
+          # makes them match no device and be dropped. Local traffic policy keeps the
+          # peer's address intact. VXLAN does not need this: it looks up by VNI alone.
+          externalTrafficPolicy: Local
           ports:
           - port: "{{"{{ .Spec.Endpoint.Port }}"}}"
             protocol: UDP

@@ -119,8 +119,12 @@ networking:
           # -- Service type used to expose the gateway client. The Geneve server replies to a configured endpoint rather
           # than to the observed source, so the client must be reachable and always needs a service.
           type: NodePort
-          # -- Port used to expose the gateway client.
-          port: 51842
+          # -- Port used to expose the gateway client. With the NodePort service type this value is also pinned as the
+          # node port, so it must fall inside the cluster's --service-node-port-range (30000-32767 by default): a Geneve
+          # device uses one UDP port for both listening and transmitting and the kernel refuses to change it, so a
+          # translated node port would be unreachable. The gateway server must be given the same port through
+          # --gw-server-service-port and --gw-server-service-nodeport.
+          port: 31840
     # -- Set the number of replicas for the gateway deployments
     replicas: 1
     # -- Set the options to configure the gateway ping used to check connection
