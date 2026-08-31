@@ -36,9 +36,31 @@ func RunDNSRoutine(ctx context.Context, opts *Options, linkIndex int) error {
 	klog.Infof("DNS routine started: resolving %q every %s", opts.RemoteAddress, opts.DNSCheckInterval)
 
 	var current net.IP
-	if ip, err := ResolveRemoteIP(ctx, opts.RemoteAddress); err == nil {
+
+	// apply resolves the endpoint and, when it has moved, points the tunnel at it.
+	// EnsureRemote is itself a no-op when the device already holds the address, so
+	// it is safe to call on the first pass.
+	apply := func() {
+		ip, err := ResolveRemoteIP(ctx, opts.RemoteAddress)
+		if err != nil {
+			klog.Warningf("Cannot resolve remote endpoint %q: %v", opts.RemoteAddress, err)
+			return
+		}
+		if ip.Equal(current) {
+			return
+		}
+		if err := EnsureRemote(opts, linkIndex, ip); err != nil {
+			klog.Errorf("Cannot update tunnel peer to %s: %v", ip, err)
+			return
+		}
+		klog.Infof("Remote endpoint %q resolved: %s -> %s", opts.RemoteAddress, current, ip)
 		current = ip
 	}
+
+	// The first pass is not merely bookkeeping: InitGeneveLink tolerates a name
+	// that does not resolve at startup, which leaves the device without a peer
+	// until this runs.
+	apply()
 
 	ticker := time.NewTicker(opts.DNSCheckInterval)
 	defer ticker.Stop()
@@ -49,21 +71,6 @@ func RunDNSRoutine(ctx context.Context, opts *Options, linkIndex int) error {
 			return nil
 		case <-ticker.C:
 		}
-
-		ip, err := ResolveRemoteIP(ctx, opts.RemoteAddress)
-		if err != nil {
-			klog.Warningf("Cannot re-resolve remote endpoint %q: %v", opts.RemoteAddress, err)
-			continue
-		}
-		if ip.Equal(current) {
-			continue
-		}
-
-		if err := EnsureRemote(opts, linkIndex, ip); err != nil {
-			klog.Errorf("Cannot update tunnel peer to %s: %v", ip, err)
-			continue
-		}
-		klog.Infof("Remote endpoint %q moved: %s -> %s", opts.RemoteAddress, current, ip)
-		current = ip
+		apply()
 	}
 }

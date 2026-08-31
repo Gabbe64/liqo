@@ -190,10 +190,6 @@ rules:
   - internalnodes
   - ips
   - routeconfigurations
-  - vxlangatewayclients
-  - vxlangatewayclienttemplates
-  - vxlangatewayservers
-  - vxlangatewayservertemplates
   - wggatewayclients
   - wggatewayclienttemplates
   - wggatewayservers
@@ -218,8 +214,6 @@ rules:
   - internalfabrics/finalizers
   - internalnodes/finalizers
   - routeconfigurations/finalizers
-  - vxlangatewayclients/finalizers
-  - vxlangatewayservers/finalizers
   - wggatewayclients/finalizers
   - wggatewayservers/finalizers
   verbs:
@@ -251,8 +245,6 @@ rules:
   - genevegatewayclients/status
   - genevegatewayservers/status
   - internalfabrics/status
-  - vxlangatewayclients/status
-  - vxlangatewayservers/status
   - wggatewayclients/status
   - wggatewayservers/status
   verbs:

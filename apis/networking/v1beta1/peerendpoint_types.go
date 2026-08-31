@@ -43,8 +43,8 @@ type PeerEndpointSpec struct {
 // PeerEndpoint carries the endpoint of the remote gateway to the local gateway
 // runtime. It is required by tunnel technologies that cannot discover the peer
 // endpoint from the data plane, i.e. those configuring both sides statically
-// (VXLAN in "static" tunnel mode) so that the outer source port can be hashed
-// and RSS/ECMP can spread the tunnel traffic.
+// (Geneve) so that the outer source port can be hashed and RSS/ECMP can spread
+// the tunnel traffic.
 //
 // It is watched by the gateway runtime, so the endpoint can be updated without
 // restarting the gateway pod.

@@ -246,8 +246,8 @@ func (w *Waiter) ForGatewayServerStatusEndpoint(ctx context.Context, gwServer *n
 }
 
 // ForGatewayClientStatusEndpoint waits until the endpoint at which the gateway client
-// is reachable has been published in its status. Only meaningful for tunnel modes
-// where the client is reachable too (e.g. VXLAN "static").
+// is reachable has been published in its status. Only meaningful for tunnel
+// technologies where the client is reachable too (e.g. Geneve).
 func (w *Waiter) ForGatewayClientStatusEndpoint(ctx context.Context, gwClient *networkingv1beta1.GatewayClient) error {
 	s := w.Printer.StartSpinner("Waiting for gateway client endpoint to be published")
 	err := wait.PollUntilContextCancel(ctx, 1*time.Second, true, func(ctx context.Context) (done bool, err error) {

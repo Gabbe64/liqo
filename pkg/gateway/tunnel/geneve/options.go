@@ -41,7 +41,10 @@ type Options struct {
 	// PeerEndpoint resource.
 	RemoteAddress string
 
-	// RemotePort is the UDP port of the peer endpoint. See RemoteAddress.
+	// RemotePort is the UDP port of the peer endpoint. A Geneve device transmits
+	// to the port it was created with, so this is not applied to the device: it is
+	// cross-checked against Port, since the two must be equal for the peering to
+	// work at all. See ValidateOptions.
 	RemotePort int
 
 	// L3 carries inner payloads without an Ethernet header (inner_proto_inherit).
@@ -82,7 +85,20 @@ func ValidateOptions(opts *Options) error {
 			return fmt.Errorf("flag --%s is required in client mode", FlagNameRemoteAddress)
 		}
 		if opts.RemotePort <= 0 || opts.RemotePort > 65535 {
-			return fmt.Errorf("flag --%s is required in client mode", FlagNameRemotePort)
+			return fmt.Errorf("flag --%s must be a valid port in client mode, got %d",
+				FlagNameRemotePort, opts.RemotePort)
+		}
+
+		// A Geneve device has a single UDP port, used both to listen and as the
+		// transmit destination, and the kernel refuses to change it on a live
+		// device. A peer reachable on a different port therefore black-holes the
+		// return path instead of failing visibly, so the mismatch is rejected here.
+		if opts.RemotePort != opts.Port {
+			return fmt.Errorf(
+				"peer endpoint port (--%s=%d) must equal the local tunnel port (--%s=%d): a Geneve device "+
+					"uses one UDP port for both listening and transmitting, so the peer cannot be reached "+
+					"through a translated port; align the gateway server's service port and node port with it",
+				FlagNameRemotePort, opts.RemotePort, FlagNamePort, opts.Port)
 		}
 	}
 

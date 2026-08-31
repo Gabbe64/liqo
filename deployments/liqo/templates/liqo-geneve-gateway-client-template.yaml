@@ -27,8 +27,8 @@ spec:
             {{- include "liqo.labelsTemplate" $templateConfig | nindent 12 }}
           annotations:
             liqo.io/skip-reflection: "true"
-          {{- if .Values.networking.gatewayTemplates.server.service.annotations }}
-            {{- toYaml .Values.networking.gatewayTemplates.server.service.annotations | nindent 12 }}
+          {{- if .Values.networking.gatewayTemplates.geneve.client.service.annotations }}
+            {{- toYaml .Values.networking.gatewayTemplates.geneve.client.service.annotations | nindent 12 }}
           {{- end }}
         spec:
           selector:

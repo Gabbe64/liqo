@@ -59,7 +59,7 @@ for arch in "${arch_array[@]}"; do
     fi
 done
 
-if [[ "$component" == "geneve" || "$component" == "geneve-tunnel" || "$component" == "wireguard" || "$component" == "vxlan" ]]; then
+if [[ "$component" == "geneve" || "$component" == "geneve-tunnel" || "$component" == "wireguard" ]]; then
     image_component="gateway/${component}"
 else
     image_component="${component}"

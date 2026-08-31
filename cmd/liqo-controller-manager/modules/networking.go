@@ -33,7 +33,6 @@ import (
 	"github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/remapping"
 	externalnetworkroute "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/route"
 	serveroperator "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/server-operator"
-	vxlangatewaycontrollers "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/vxlan"
 	wggatewaycontrollers "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/external-network/wireguard"
 	internalclientcontroller "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/internal-network/client-controller"
 	internalconfigurationcontroller "github.com/liqotech/liqo/pkg/liqo-controller-manager/networking/internal-network/configuration-controller"
@@ -60,8 +59,6 @@ type NetworkingOption struct {
 	GatewayClientResources             []string
 	WgGatewayServerClusterRoleName     string
 	WgGatewayClientClusterRoleName     string
-	VxlanGatewayServerClusterRoleName  string
-	VxlanGatewayClientClusterRoleName  string
 	GeneveGatewayServerClusterRoleName string
 	GeneveGatewayClientClusterRoleName string
 	NetworkWorkers                     int
@@ -86,8 +83,6 @@ func NewNetworkingOption(factory *dynamicutils.RunnableFactory, dynClient dynami
 		GatewayClientResources:             opts.GatewayClientResources.StringList,
 		WgGatewayServerClusterRoleName:     opts.WgGatewayServerClusterRoleName,
 		WgGatewayClientClusterRoleName:     opts.WgGatewayClientClusterRoleName,
-		VxlanGatewayServerClusterRoleName:  opts.VxlanGatewayServerClusterRoleName,
-		VxlanGatewayClientClusterRoleName:  opts.VxlanGatewayClientClusterRoleName,
 		GeneveGatewayServerClusterRoleName: opts.GeneveGatewayServerClusterRoleName,
 		GeneveGatewayClientClusterRoleName: opts.GeneveGatewayClientClusterRoleName,
 		NetworkWorkers:                     opts.NetworkWorkers,
@@ -153,22 +148,6 @@ func SetupNetworkingModule(ctx context.Context, mgr manager.Manager, uncachedCli
 		opts.WgGatewayClientClusterRoleName)
 	if err := wgClientRec.SetupWithManager(mgr); err != nil {
 		klog.Errorf("Unable to start the wgGatewayClientReconciler: %v", err)
-		return err
-	}
-
-	vxlanServerRec := vxlangatewaycontrollers.NewGatewayServerReconciler(mgr.GetClient(), mgr.GetScheme(),
-		mgr.GetEventRecorderFor("vxlan-gateway-server-controller"),
-		opts.VxlanGatewayServerClusterRoleName)
-	if err := vxlanServerRec.SetupWithManager(mgr); err != nil {
-		klog.Errorf("Unable to start the vxlanGatewayServerReconciler: %v", err)
-		return err
-	}
-
-	vxlanClientRec := vxlangatewaycontrollers.NewGatewayClientReconciler(mgr.GetClient(), mgr.GetScheme(),
-		mgr.GetEventRecorderFor("vxlan-gateway-client-controller"),
-		opts.VxlanGatewayClientClusterRoleName)
-	if err := vxlanClientRec.SetupWithManager(mgr); err != nil {
-		klog.Errorf("Unable to start the vxlanGatewayClientReconciler: %v", err)
 		return err
 	}
 

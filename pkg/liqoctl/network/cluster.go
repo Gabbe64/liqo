@@ -267,17 +267,6 @@ func (c *Cluster) CheckTemplateGwServer(ctx context.Context, opts *Options) erro
 	return nil
 }
 
-// GetTemplateTunnelMode returns the tunnel mode advertised by a gateway template
-// through the tunnel-mode label. An empty string means the template does not
-// declare one (i.e., the tunnel technology has a single mode).
-func (c *Cluster) GetTemplateTunnelMode(ctx context.Context, templateName, templateNamespace, templateGvr string) (string, error) {
-	template, err := c.checkTemplate(ctx, templateName, templateNamespace, templateGvr)
-	if err != nil {
-		return "", err
-	}
-	return template.GetLabels()[consts.TunnelModeLabel], nil
-}
-
 func (c *Cluster) checkTemplate(ctx context.Context, templateName, templateNamespace, templateGvr string) (*unstructured.Unstructured, error) {
 	// Server Template Reference
 	gvr, err := enutils.ParseGroupVersionResource(templateGvr)

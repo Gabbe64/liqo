@@ -63,15 +63,11 @@ networking:
     - apiVersion: networking.liqo.io/v1beta1
       resource: wggatewayservers
     - apiVersion: networking.liqo.io/v1beta1
-      resource: vxlangatewayservers
-    - apiVersion: networking.liqo.io/v1beta1
       resource: genevegatewayservers
   # -- Set the list of resources that implement the GatewayClient
   clientResources:
     - apiVersion: networking.liqo.io/v1beta1
       resource: wggatewayclients
-    - apiVersion: networking.liqo.io/v1beta1
-      resource: vxlangatewayclients
     - apiVersion: networking.liqo.io/v1beta1
       resource: genevegatewayclients
   gateway:
@@ -96,35 +92,30 @@ networking:
     wireguard:
       # -- Set the implementation used for the WireGuard connection. Possible values are "kernel" and "userspace".
       implementation: "kernel"
-    vxlan:
-      # -- Set the VXLAN Network Identifier used by the VXLAN gateway tunnels. It must match on both peered clusters.
-      vni: 100
-      # -- Options for the VXLAN templates using the "static" tunnel mode. In this mode both gateways are configured
-      # with each other's endpoint instead of learning it from the data plane: this allows the outer UDP source port
-      # to be hashed (so RSS and ECMP can spread the tunnel traffic), but requires the two gateways to be mutually
-      # reachable. Use the default "nat-traversal" templates when the client is behind NAT.
-      static:
-        client:
-          service:
-            # -- Service type used to expose the gateway client, which in "static" tunnel mode must be reachable by the server.
-            type: NodePort
-            # -- Port used to expose the gateway client in "static" tunnel mode.
-            port: 51841
     geneve:
       # -- Set the Virtual Network Identifier used by the Geneve gateway tunnels. It must match on both peered clusters:
       # nothing validates it, and a mismatch silently black-holes the tunnel.
       vni: 100
+      # NOTE on the tunnel MTU, which is set per peering with "liqoctl network connect --mtu": the Geneve tunnel sets
+      # the don't-fragment bit on the outer header, so that ECMP cannot scatter the fragments of a single packet across
+      # different paths. The cost is that an MTU larger than the path allows does not degrade, it black-holes. Leave
+      # headroom for the 36 bytes of outer IP+UDP+Geneve on top of whatever the underlay itself consumes.
       client:
         service:
           # -- Service type used to expose the gateway client. The Geneve server replies to a configured endpoint rather
-          # than to the observed source, so the client must be reachable and always needs a service.
+          # than to the observed source, so the client must be reachable and always needs a service. Only NodePort and
+          # LoadBalancer are supported: the service carries externalTrafficPolicy=Local, which the API server rejects
+          # on a ClusterIP service.
           type: NodePort
           # -- Port used to expose the gateway client. With the NodePort service type this value is also pinned as the
           # node port, so it must fall inside the cluster's --service-node-port-range (30000-32767 by default): a Geneve
           # device uses one UDP port for both listening and transmitting and the kernel refuses to change it, so a
-          # translated node port would be unreachable. The gateway server must be given the same port through
-          # --gw-server-service-port and --gw-server-service-nodeport.
+          # translated node port would be unreachable. The gateway server must be given the same value through the
+          # flags --gw-server-service-port and --gw-server-service-nodeport, and the gateway refuses to start if they
+          # disagree.
           port: 31840
+          # -- Annotations for the gateway client service.
+          annotations: {}
     # -- Set the number of replicas for the gateway deployments
     replicas: 1
     # -- Set the options to configure the gateway ping used to check connection
@@ -160,12 +151,6 @@ networking:
           # -- Image repository for the wireguard container.
           name: "ghcr.io/liqotech/gateway/wireguard"
           # -- Custom version for the wireguard image. If not specified, the global tag is used.
-          version: ""
-      vxlan:
-        image:
-          # -- Image repository for the vxlan container.
-          name: "ghcr.io/liqotech/gateway/vxlan"
-          # -- Custom version for the vxlan image. If not specified, the global tag is used.
           version: ""
       geneve:
         image:

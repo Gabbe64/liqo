@@ -4,7 +4,7 @@ FROM alpine:3.20
 ARG COMPONENT
 ARG TARGETARCH
 
-RUN if [ "$COMPONENT" = "geneve" ] || [ "$COMPONENT" = "geneve-tunnel" ] || [ "$COMPONENT" = "wireguard" ] || [ "$COMPONENT" = "vxlan" ] || [ "$COMPONENT" = "gateway" ]; then \
+RUN if [ "$COMPONENT" = "geneve" ] || [ "$COMPONENT" = "geneve-tunnel" ] || [ "$COMPONENT" = "wireguard" ] || [ "$COMPONENT" = "gateway" ]; then \
     set -x; \
     apk add --no-cache iproute2 nftables bash wireguard-tools tcpdump conntrack-tools curl iputils; \
     fi

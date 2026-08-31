@@ -98,33 +98,29 @@ func clusterRoleBindingEnquerer(_ context.Context, obj client.Object) []ctrl.Req
 }
 
 // forgeEndpointStatus builds the endpoint at which a gateway is reachable from
-// its Service, according to the service type. Shared by the server (always) and
-// by the client (only in "static" tunnel mode, where it must be reachable too).
+// its Service, according to the service type. Both the server and the client use
+// it: a Geneve peering configures each side with the other's endpoint, so the
+// client is reachable too.
 func forgeEndpointStatus(ctx context.Context, cl client.Client, service *corev1.Service,
 	namespace string) (*networkingv1beta1.EndpointStatus, error) {
 	switch service.Spec.Type {
-	case corev1.ServiceTypeClusterIP:
-		return forgeEndpointStatusClusterIP(service)
 	case corev1.ServiceTypeNodePort:
 		return forgeEndpointStatusNodePort(ctx, cl, service, namespace)
 	case corev1.ServiceTypeLoadBalancer:
 		return forgeEndpointStatusLoadBalancer(service)
+	case corev1.ServiceTypeClusterIP:
+		// The Geneve gateway Services carry externalTrafficPolicy: Local, which the
+		// API server accepts only on externally-accessible Services, so a ClusterIP
+		// Service cannot be created at all. Say so here: the alternative is an
+		// opaque Service validation error that names neither Geneve nor the reason.
+		return nil, fmt.Errorf("service type %q is not supported by the Geneve gateway (Service %s/%s): the "+
+			"tunnel needs externalTrafficPolicy=Local to preserve the peer's source address, which requires "+
+			"a NodePort or LoadBalancer service",
+			service.Spec.Type, service.Namespace, service.Name)
 	default:
 		return nil, fmt.Errorf("service type %q not supported for Geneve gateway Service %s/%s",
 			service.Spec.Type, service.Namespace, service.Name)
 	}
-}
-
-func forgeEndpointStatusClusterIP(service *corev1.Service) (*networkingv1beta1.EndpointStatus, error) {
-	if len(service.Spec.Ports) == 0 {
-		return nil, fmt.Errorf("service %s/%s has no ports", service.Namespace, service.Name)
-	}
-
-	return &networkingv1beta1.EndpointStatus{
-		Protocol:  &service.Spec.Ports[0].Protocol,
-		Port:      service.Spec.Ports[0].Port,
-		Addresses: service.Spec.ClusterIPs,
-	}, nil
 }
 
 // forgeEndpointStatusNodePort advertises the address of the node hosting the

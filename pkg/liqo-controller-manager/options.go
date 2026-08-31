@@ -49,8 +49,6 @@ type Options struct {
 	GatewayClientResources             args.StringList
 	WgGatewayServerClusterRoleName     string
 	WgGatewayClientClusterRoleName     string
-	VxlanGatewayServerClusterRoleName  string
-	VxlanGatewayClientClusterRoleName  string
 	GeneveGatewayServerClusterRoleName string
 	GeneveGatewayClientClusterRoleName string
 	FabricFullMasqueradeEnabled        bool

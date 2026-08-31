@@ -68,10 +68,6 @@ func InitFlags(flagset *pflag.FlagSet, opts *Options) {
 		"The name of the cluster role used by the wireguard gateway servers")
 	flagset.StringVar(&opts.WgGatewayClientClusterRoleName, "wg-gateway-client-cluster-role-name", "liqo-gateway",
 		"The name of the cluster role used by the wireguard gateway clients")
-	flagset.StringVar(&opts.VxlanGatewayServerClusterRoleName, "vxlan-gateway-server-cluster-role-name", "liqo-gateway",
-		"The name of the cluster role used by the VXLAN gateway servers")
-	flagset.StringVar(&opts.VxlanGatewayClientClusterRoleName, "vxlan-gateway-client-cluster-role-name", "liqo-gateway",
-		"The name of the cluster role used by the VXLAN gateway clients")
 	flagset.StringVar(&opts.GeneveGatewayServerClusterRoleName, "geneve-gateway-server-cluster-role-name", "liqo-gateway",
 		"The name of the cluster role used by the geneve gateway servers")
 	flagset.StringVar(&opts.GeneveGatewayClientClusterRoleName, "geneve-gateway-client-cluster-role-name", "liqo-gateway",

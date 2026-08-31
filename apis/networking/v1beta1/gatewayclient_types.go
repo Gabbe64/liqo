@@ -58,8 +58,7 @@ type GatewayClientStatus struct {
 	InternalEndpoint *InternalGatewayEndpoint `json:"internalEndpoint,omitempty"`
 	// Endpoint specifies the endpoint at which the client is reachable.
 	// Populated only by tunnel technologies where the client is reachable too
-	// (e.g. VXLAN in "static" tunnel mode); the counterpart of
-	// GatewayServer.Status.Endpoint.
+	// (e.g. Geneve); the counterpart of GatewayServer.Status.Endpoint.
 	// +optional
 	Endpoint *EndpointStatus `json:"endpoint,omitempty"`
 }

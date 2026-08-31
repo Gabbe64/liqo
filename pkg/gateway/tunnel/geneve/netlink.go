@@ -29,10 +29,10 @@ import (
 //
 // The device receives every packet arriving on its UDP port with the matching
 // VNI, and transmits to the address held in its Remote attribute. Because the
-// tunnel carries L3 payloads there is no inner Ethernet header, so unlike the
-// VXLAN runtime there is no MAC to assign, no ARP to disable and no neighbor
-// entry to install: the peer's link-local address resolves through the
-// connected route of the /30 assigned below.
+// tunnel carries L3 payloads there is no inner Ethernet header, so unlike an
+// L2 tunnel there is no MAC to assign, no ARP to disable and no neighbor entry
+// to install: the peer's link-local address resolves through the connected
+// route of the /30 assigned below.
 //
 // An existing device with matching parameters is reused rather than recreated,
 // so that routes installed in custom tables survive a container restart.
@@ -64,10 +64,19 @@ func InitGeneveLink(ctx context.Context, opts *Options) (int, error) {
 	// startup ordering.
 	if opts.RemoteAddress != "" {
 		remoteIP, err := ResolveRemoteIP(ctx, opts.RemoteAddress)
-		if err != nil {
-			return 0, err
-		}
-		if err := EnsureRemote(opts, link.Attrs().Index, remoteIP); err != nil {
+		switch {
+		case err == nil:
+			if err := EnsureRemote(opts, link.Attrs().Index, remoteIP); err != nil {
+				return 0, err
+			}
+		case IsDNSRoutineRequired(opts):
+			// A name that does not resolve yet (a LoadBalancer still being
+			// provisioned) is not a startup failure: the device is usable without a
+			// peer, and the DNS routine points it at the address once it appears.
+			// A literal address that fails to parse is a config error and still does.
+			klog.Warningf("Cannot resolve remote endpoint %q yet, deferring to the DNS routine: %v",
+				opts.RemoteAddress, err)
+		default:
 			return 0, err
 		}
 	}
@@ -87,6 +96,14 @@ func ensureGeneveDevice(opts *Options) (netlink.Link, error) {
 				if err := netlink.LinkSetMTU(existing, opts.MTU); err != nil {
 					return nil, fmt.Errorf("cannot set MTU on interface %q: %w", tunnel.TunnelInterfaceName, err)
 				}
+			}
+			// Df cannot be compared (parseGeneveData ignores IFLA_GENEVE_DF, so it
+			// always reads back unset) and EnsureRemote short-circuits when the peer
+			// is unchanged, so neither would correct a device that lacks it. Assert
+			// it here, or a reused device could silently fragment.
+			if err := ensureDf(opts, gn); err != nil {
+				return nil, fmt.Errorf("cannot assert the don't-fragment bit on interface %q: %w",
+					tunnel.TunnelInterfaceName, err)
 			}
 			return existing, nil
 		}
@@ -111,8 +128,9 @@ func ensureGeneveDevice(opts *Options) (netlink.Link, error) {
 //
 // Note that the outer UDP checksum cannot be requested here: the netlink library
 // never serializes IFLA_GENEVE_UDP_CSUM, so the device is created with
-// checksums disabled. That is legal for IPv4 and saves the computation, but it
-// differs from the VXLAN runtime, which enables them.
+// checksums disabled. That is legal for IPv4 (the inner payload carries its own
+// checksum) and saves the computation, but it does mean corruption in the outer
+// header is not detected by the tunnel itself.
 func forgeGeneveLink(opts *Options, remote net.IP) *netlink.Geneve {
 	return &netlink.Geneve{
 		LinkAttrs: netlink.LinkAttrs{
@@ -139,8 +157,9 @@ func forgeGeneveLink(opts *Options, remote net.IP) *netlink.Geneve {
 // Only the parameters the kernel refuses to change are compared, and only those
 // the netlink library actually parses back. Df is excluded because
 // parseGeneveData ignores IFLA_GENEVE_DF, so it always deserializes as unset;
-// EnsureRemote re-asserts it on every update instead. The MTU is excluded too:
-// it is adjusted in place.
+// it is re-asserted unconditionally instead, by ensureGeneveDevice on reuse and
+// by EnsureRemote on every peer update. The MTU is excluded too: it is adjusted
+// in place.
 func geneveParamsMatch(gn *netlink.Geneve, opts *Options) bool {
 	return gn.ID == uint32(opts.VNI) && //nolint:gosec // validated in ValidateOptions
 		gn.Dport == uint16(opts.Port) && //nolint:gosec // validated in ValidateOptions
@@ -188,6 +207,17 @@ func EnsureRemote(opts *Options, linkIndex int, remote net.IP) error {
 	endpointUpdates.Inc()
 	endpointLastUpdate.SetToCurrentTime()
 	return nil
+}
+
+// ensureDf re-applies the don't-fragment bit to an existing device, leaving every
+// other parameter untouched. Attributes absent from a changelink request are
+// preserved by the kernel, so the peer address is carried over explicitly only to
+// make that intent obvious.
+func ensureDf(opts *Options, existing *netlink.Geneve) error {
+	upd := forgeGeneveLink(opts, existing.Remote)
+	upd.Dport = 0
+	upd.InnerProtoInherit = false
+	return netlink.LinkModify(upd)
 }
 
 // ensureAddress adds the given address to the link if not already present.

@@ -33,10 +33,9 @@ var GeneveGatewayClientGroupVersionResource = GroupVersion.WithResource(GeneveGa
 
 // GeneveGatewayClientSpec defines the desired state of GeneveGatewayClient.
 //
-// Unlike the WireGuard and the nat-traversal VXLAN clients, the Geneve client
-// is not a pure initiator: the server replies to a configured endpoint rather
-// than to the observed source, so the client must be reachable and the Service
-// is mandatory.
+// Unlike the WireGuard client, the Geneve client is not a pure initiator: the
+// server replies to a configured endpoint rather than to the observed source,
+// so the client must be reachable and the Service is mandatory.
 type GeneveGatewayClientSpec struct {
 	// Service specifies the service template for the client. The server needs to
 	// reach the client at a known endpoint, so it is required.

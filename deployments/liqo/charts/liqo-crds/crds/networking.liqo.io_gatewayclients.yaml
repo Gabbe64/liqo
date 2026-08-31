@@ -207,8 +207,7 @@ spec:
                 description: |-
                   Endpoint specifies the endpoint at which the client is reachable.
                   Populated only by tunnel technologies where the client is reachable too
-                  (e.g. VXLAN in "static" tunnel mode); the counterpart of
-                  GatewayServer.Status.Endpoint.
+                  (e.g. Geneve); the counterpart of GatewayServer.Status.Endpoint.
                 properties:
                   addresses:
                     description: Addresses specifies the addresses of the endpoint.

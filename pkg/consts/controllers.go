@@ -57,8 +57,6 @@ const (
 	CtrlRouteConfiguration     = "routeconfiguration"
 	CtrlGeneveGatewayClient    = "genevegatewayclient"
 	CtrlGeneveGatewayServer    = "genevegatewayserver"
-	CtrlVxlanGatewayClient     = "vxlangatewayclient"
-	CtrlVxlanGatewayServer     = "vxlangatewayserver"
 	CtrlWGGatewayClient        = "wggatewayclient"
 	CtrlWGGatewayServer        = "wggatewayserver"
 

@@ -13,8 +13,10 @@
 // limitations under the License.
 
 // Package geneve contains the controllers managing the lifecycle of the
-// GeneveGatewayServer and GeneveGatewayClient resources: the server exposes a
-// Service and publishes its endpoint in the status, while the client only
-// runs a deployment (it needs no inbound reachability, since the server
-// learns the client endpoint from the data plane).
+// GeneveGatewayServer and GeneveGatewayClient resources.
+//
+// Both sides expose a Service and publish its endpoint in the status. The client
+// is not a pure initiator: the kernel always hashes the outer UDP source port, so
+// the server cannot reply to the observed source and is instead configured with
+// the client's endpoint. Both gateways must therefore be mutually reachable.
 package geneve
